@@ -13,6 +13,7 @@ from .game_brain import GameBrain
 GAME_PROFILES = {
     "generic": "Entorno interactivo generico. Observa el fotograma y decide una accion util.",
     "roblox": "Roblox: usa WASD, mouse, espacio y clic. Observa la interfaz antes de actuar.",
+    "jjs": "Jujutsu Shenanigans: battleground de combate. Prioriza leer HUD, objetivo, distancia, ataques, dash y defensa.",
     "limbus": "Limbus Company: lee la interfaz y usa acciones de combate prudentes.",
 }
 ACTION_HINT = (
@@ -265,7 +266,17 @@ class Agent:
         brain = self.game_brain
         hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
 
-        if profile == "roblox":
+        if profile == "jjs":
+            controls = (
+                "Jujutsu Shenanigans en PC: M1/click izquierdo = combo basico; 1/2/3/4 = "
+                "habilidades; Q = dash/escape; F = bloquear; R = especial; G = awakening; "
+                "W+W = sprint; Shift = Shift Lock. El HUD y el estado del personaje mandan: "
+                "no uses una habilidad si parece estar en cooldown, bloqueado o sin objetivo. "
+                "Busca al rival, acerca distancia con movimiento/dash, confirma impacto y "
+                "alternar ataque, defensa y reposicionamiento. La camara debe seguir al objetivo, "
+                "no girar al azar."
+            )
+        elif profile == "roblox":
             controls = (
                 "Roblox: W/A/S/D mover; SPACE saltar; SHIFT+W correr; E/Q/R/F/1/2/3 "
                 "son acciones contextuales; click izquierdo para UI; Shift puede alternar "
@@ -289,9 +300,10 @@ class Agent:
             '"actions":[{"type":"..."},{"type":"..."}]}. '
             "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
             "el controlador local ejecutara SOLO UNA. "
-            "Acciones permitidas: hold(key=w/a/s/d,seconds), keys(keys=[shift,w],seconds), "
-            "press(key=space/e/q/r/f/1/2/3), camera_turn(dx,dy,seconds), "
-            "camera_drag(dx,dy,seconds), toggle_shift_lock, click(x,y,normalized=true), wait(seconds). "
+            "Acciones permitidas: hold(key=w/a/s/d,seconds), block(seconds), m1(seconds), "
+            "double_tap_w, keys(keys=[shift,w],seconds), press(key=space/e/q/r/f/g/1/2/3/4), "
+            "camera_turn(dx,dy,seconds), camera_drag(dx,dy,seconds), toggle_shift_lock, "
+            "click(x,y,normalized=true), wait(seconds). "
             "Haz microacciones: mover 0.18-0.58 s; camara 0.06-0.16 s; giros pequenos. "
             "No uses un giro grande para buscar a ciegas. Para seguir un objetivo visible, "
             "elige la direccion que lo acerque. Si no hay objetivo visible, explora: mover, "
