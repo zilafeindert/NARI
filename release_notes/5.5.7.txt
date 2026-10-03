@@ -1,0 +1,8 @@
+NARI 5.5.7
+
+- El apuntado del Dummy de Jujutsu Shenanigans ya no depende de que el VLM escriba correctamente el nombre del objetivo.
+- El detector acepta marcadores verdes de contorno, parcialmente visibles y con distintas intensidades.
+- Cuando el Dummy es visible pero esta fuera del centro, NARI fuerza el giro de cámara en vez de dejar que el sistema de diversidad lo sustituya por otra acción.
+- Se añade una busqueda panoramica corta cuando el Dummy se pierde.
+- El movimiento relativo de mouse usa SendInput con NOCOALESCE como ruta principal para reducir perdida de deltas de camara.
+- La aproximacion y el M1 solo se fuerzan cuando el Dummy ya esta centrado.
