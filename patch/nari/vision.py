@@ -94,6 +94,55 @@ class ScreenVideo:
             if self.latest_game_frame is None:
                 return None if self.latest_frame is None else self.latest_frame.copy()
             return self.latest_game_frame.copy()
+
+    @staticmethod
+    def find_dummy_marker(frame):
+        """Detecta el marcador verde cuadrado que aparece sobre el Dummy de JJS."""
+        if frame is None or cv2 is None:
+            return None
+        try:
+            img=np.asarray(frame)
+            if img.ndim != 3 or img.shape[1] < 120 or img.shape[0] < 80:
+                return None
+            hsv=cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
+            # Verde saturado/brillante. Se filtran barras largas y zonas enormes
+            # favoreciendo componentes compactos con forma casi cuadrada.
+            mask=cv2.inRange(hsv,np.array([35,100,90],np.uint8),np.array([90,255,255],np.uint8))
+            mask=cv2.morphologyEx(mask,cv2.MORPH_OPEN,np.ones((2,2),np.uint8))
+            n,labels,stats,cent=cv2.connectedComponentsWithStats(mask,8)
+            h,w=img.shape[:2]
+            best=None
+            for idx in range(1,n):
+                x,y,bw,bh,area=[int(v) for v in stats[idx]]
+                if area < 10 or area > max(900,int(w*h*0.004)):
+                    continue
+                if bw < 3 or bh < 3:
+                    continue
+                ratio=bw/max(1,bh)
+                if ratio < 0.60 or ratio > 1.65:
+                    continue
+                if max(bw,bh) > max(18,int(w*0.08)):
+                    continue
+                fill=float(area)/float(max(1,bw*bh))
+                if fill < 0.40:
+                    continue
+                cx=float(cent[idx][0])/float(w)
+                cy=float(cent[idx][1])/float(h)
+                if cx < 0.03 or cx > 0.97 or cy < 0.03 or cy > 0.93:
+                    continue
+                squareness=1.0-abs(1.0-ratio)
+                score=float(area)*squareness
+                if best is None or score > best[0]:
+                    best=(score,cx,cy,area,bw,bh)
+            if best is None:
+                return None
+            return {
+                "center_x":max(0.0,min(1.0,best[1])),
+                "center_y":max(0.0,min(1.0,best[2])),
+                "area":int(best[3]),
+                "width":int(best[4]),
+                "height":int(best[5]),
+            }
     def image_bytes(self,count=1,max_width=768):
         with self.lock:
             rows=list(self.game_history) if self.game_history else list(self.history)
