@@ -219,7 +219,7 @@ class Agent:
             system += "\nAutonomia de PC desactivada."
         messages = [{"role": "system", "content": system}] + self.history[-3:] + [{"role": "user", "content": text}]
         try:
-            result = self._normalize(self._parse(self._call(messages, model, 15, 72, 1536)))
+            result = self._normalize(self._parse(self._call(messages, model, 10, 56, 1024)))
             if not result.get("reply"):
                 retry = [
                     {"role": "system", "content": "/no_think Responde directamente en español. No expliques tu razonamiento."},
@@ -239,19 +239,20 @@ class Agent:
     def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
         model = self._pick_vision_model()
         hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
+        # El controlador de juego necesita la decisión más pequeña posible.
+        # No metemos el historial/memoria completa en cada fotograma porque eso
+        # aumenta el contexto y retrasa la respuesta visual.
         system = (
             "/no_think\n"
-            "Analiza solo lo visible y decide RAPIDO la siguiente accion util. "
-            "No expliques el razonamiento. Para Roblox, avanzar usa hold W/A/D durante un tramo "
-            "y girar la cámara usa OBLIGATORIAMENTE camera_drag (RMB mantenido + movimiento relativo). "
-            "No uses mouse_move_rel para girar la cámara. Evita wait salvo que realmente sea necesario. "
-            "No devuelvas código. " + self._context() + "\n\n" + ACTION_HINT +
-            "\nPERFIL: " + GAME_PROFILES.get(profile, GAME_PROFILES["generic"]) +
+            "Eres el controlador en tiempo real. Mira SOLO la imagen y devuelve UNA sola acción. "
+            "JSON mínimo: {reply,actions,reward,progress,observation}. "
+            "Para Roblox: W/A/D para movimiento; SPACE para saltar; SHIFT para correr; "
+            "E para interactuar; click para interfaces; camera_drag para girar cámara con RMB. "
+            "No uses wait si puedes actuar. No devuelvas código ni explicación. "
+            "ACCION ANTERIOR: " + (previous_action or "ninguna") +
             "\nOBJETIVO: " + str(goal) +
-            "\nMEMORIA DE APRENDIZAJE: " + hint +
-            "\nACCION ANTERIOR: " + (previous_action or "ninguna") +
-            "\nEvalua la accion anterior con reward (-1..1) segun el resultado visible. "
-            "Cambia de estrategia cuando una accion se repita y no produzca progreso."
+            "\nAPRENDIZAJE: " + hint +
+            "\n"+GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
         )
         msg = {
             "role": "user",
@@ -261,7 +262,7 @@ class Agent:
         try:
             result = self._normalize(self._parse(self._call(
                 [{"role": "system", "content": system}, msg],
-                model, 6, 64, 1024
+                model, 4, 36, 768
             )))
             # En Roblox, mover cámara significa RMB + movimiento relativo.
             if profile == "roblox":
