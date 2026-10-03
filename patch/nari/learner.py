@@ -202,7 +202,7 @@ class GameLearner:
             if key == "space":
                 return "space"
             return f"press_{key or 'unknown'}"
-        if kind == "mouse_move_rel":
+        if kind in {"mouse_move_rel","camera_drag","camera_turn"}:
             dx = float(action.get("dx", 0) or 0)
             dy = float(action.get("dy", 0) or 0)
             if abs(dx) > abs(dy):
@@ -217,15 +217,15 @@ class GameLearner:
     def action_from_key(key: str, profile: str, cycle: int = 0) -> dict:
         key = str(key or "wait")
         if key == "hold_w":
-            return {"type": "hold", "key": "w", "seconds": 0.28}
+            return {"type": "hold", "key": "w", "seconds": 0.65}
         if key == "hold_a":
-            return {"type": "hold", "key": "a", "seconds": 0.22}
+            return {"type": "hold", "key": "a", "seconds": 0.42}
         if key == "hold_d":
-            return {"type": "hold", "key": "d", "seconds": 0.22}
+            return {"type": "hold", "key": "d", "seconds": 0.42}
         if key == "look_left":
-            return {"type": "mouse_move_rel", "dx": -90, "dy": 0}
+            return {"type": "camera_drag", "dx": -300, "dy": 0, "seconds": 0.18}
         if key == "look_right":
-            return {"type": "mouse_move_rel", "dx": 90, "dy": 0}
+            return {"type": "camera_drag", "dx": 300, "dy": 0, "seconds": 0.18}
         if key == "space":
             return {"type": "press", "key": "space"}
         if key == "click":
