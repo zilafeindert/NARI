@@ -198,7 +198,7 @@ class Agent:
             "decision_note", "mode",
             "hit_confirmed", "block_success", "ko_confirmed", "death_or_ko",
             "ability_whiff", "cooldown_active", "target_visible",
-            "target_center_x", "target_distance", "target_distance_delta", "target_name", "target_is_dummy",
+            "target_center_x", "target_center_y", "target_distance", "target_distance_delta", "target_name", "target_is_dummy",
             "enemy_health_delta", "player_health_delta", "aim_alignment_delta"
         ):
             if key in result:
@@ -337,8 +337,9 @@ class Agent:
                 "Evalua tambien la accion anterior. "
                 "En JJS informa hit_confirmed, block_success, ko_confirmed, ability_whiff, "
                 "cooldown_active, enemy_health_delta, player_health_delta, target_visible, "
-                "target_center_x, target_distance_delta y aim_alignment_delta cuando puedas. "
+                "target_center_x, target_center_y, target_distance_delta y aim_alignment_delta cuando puedas. "
                 "enemy/player health delta: negativo significa perdida de vida; "
+                "target_center_y: 0.0=arriba y 1.0=abajo; "
                 "target_distance: 0.0=muy cerca y 1.0=muy lejos cuando pueda estimarse; "
                 "target_distance_delta: negativo significa que se acerco; "
                 "target_is_dummy: true solo con evidencia de que es el Dummy de entrenamiento; "
