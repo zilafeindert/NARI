@@ -8,6 +8,7 @@ from .config import OLLAMA_URL, load_settings
 from .personality import prompt_for, random_micro_shift
 from .learner import GameLearner
 from .decision import DecisionCore
+from .game_brain import GameBrain
 
 GAME_PROFILES = {
     "generic": "Entorno interactivo generico. Observa el fotograma y decide una accion util.",
@@ -36,6 +37,7 @@ class Agent:
         self._models_cache_ts = 0.0
         self.game_learner = GameLearner(self.memory.path)
         self.decisions = DecisionCore(self.memory.path)
+        self.game_brain = GameBrain(self.game_learner)
 
     def set_settings(self, settings):
         self.settings = settings or {}
@@ -102,25 +104,32 @@ class Agent:
                 return m
         return configured
 
-    def _call(self, messages, model, timeout=15, num_predict=72, ctx=1536):
+    def _call(self, messages, model, timeout=15, num_predict=72, ctx=1536, think=False):
         payload = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "think": False,
+            "think": bool(think),
             "format": "json",
             "keep_alive": "60m",
             "options": {
-                "temperature": 0.25,
+                "temperature": 0.20,
                 "num_ctx": ctx,
                 "num_predict": num_predict,
-                "top_p": 0.85,
+                "top_p": 0.82,
             },
         }
         r = requests.post(OLLAMA_URL + "/api/chat", json=payload, timeout=timeout)
+        # Algunos modelos/versions de Ollama no aceptan think=true. En ese
+        # caso se reintenta automaticamente sin pensamiento extendido.
+        if r.status_code >= 400 and think:
+            payload["think"] = False
+            r = requests.post(OLLAMA_URL + "/api/chat", json=payload, timeout=timeout)
         r.raise_for_status()
         data = r.json()
         msg = data.get("message") or {}
+        # Ollama puede devolver el razonamiento interno separado de content.
+        # Nunca se mezcla con la respuesta visible de NARI.
         return str(msg.get("content", "") or data.get("response", "") or "")
 
     @staticmethod
@@ -240,83 +249,115 @@ class Agent:
         return self._apply_memory_actions(result)
 
     def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
+        """Percepcion + decision ejecutiva cerrada para juegos.
+
+        La respuesta del VLM contiene solo un resumen operativo y una accion
+        primaria. La aplicacion ejecuta esa unica accion, observa el resultado
+        y vuelve a decidir; no se ejecutan colas obsoletas de acciones.
+        """
         model = self._pick_vision_model()
+        brain = self.game_brain
         hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
+
         if profile == "roblox":
             controls = (
-                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT+W correr; E interactuar; "
-                "Q/R/F/1/2/3 son teclas situacionales; click UI; "
-                "toggle_shift_lock intenta activar/desactivar Shift Lock una sola vez; "
-                "camera_turn usa Shift Lock si está activo y, si no, RMB + movimiento. "
-                "CTRL se puede usar solo si la experiencia lo requiere; no existe un Ctrl Lock universal."
+                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT+W correr; "
+                "E/Q/R/F/1/2/3 son contextuales; click izquierdo para UI; "
+                "toggle_shift_lock usa Shift y solo debe hacerse cuando aporte control; "
+                "camera_turn gira con movimiento relativo; con Shift Lock usa el movimiento "
+                "centrado, y sin Shift Lock usa RMB. CTRL no es un 'Control Lock' universal: "
+                "usalo solo si la interfaz o la experiencia lo muestra necesario."
             )
         else:
             controls = GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
 
+        history = brain.history_text(6)
+        stuck = f"{brain.stuck_count}"
+        no_progress = f"{brain.no_progress_count}"
+
         system = (
-            "/no_think\n"
-            "Eres un agente de juego en tiempo real. Observa solo la imagen actual. "
-            "Toma una decisión deliberada, pero no expliques el razonamiento interno. "
-            "Devuelve un plan corto de 1 a 3 acciones ordenadas que tengan sentido juntas. "
-            'JSON: {actions:[...],plan:"...",decision_note:"...",observation:"...",confidence:0.0}. '
-            "plan y decision_note deben ser resúmenes breves de la decisión, no cadena de pensamiento. "
-            "No devuelvas código. Evita cambiar de dirección sin una razón visible. "
-            "Mantén una acción de movimiento durante un tramo razonable. "
+            "Eres el controlador autonomo de un videojuego en tiempo real. "
+            "TIENES que tomar una decision cada vez que recibes un fotograma. "
+            "Piensa internamente antes de responder, pero NO escribas tu razonamiento "
+            "interno ni una cadena de pensamiento. Solo entrega un resumen breve de la "
+            "decision. Trabaja en ciclo cerrado: observar -> elegir una accion pequena -> "
+            "ejecutar -> volver a observar. Nunca planifiques una cadena larga de acciones "
+            "porque la imagen quedara obsoleta. "
+            "Devuelve SOLO JSON valido con estos campos: "
+            '{"observation":"texto corto","goal_state":"texto corto","decision_note":"texto corto",'
+            '"confidence":0.0,"actions":[{"type":"..."}]}. '
+            "actions debe contener EXACTAMENTE 1 accion ejecutable. "
+            "Acciones permitidas: hold(key=w/a/s/d,seconds), keys(keys=[shift,w],seconds), "
+            "press(key=space/e/q/r/f/1/2/3), camera_turn(dx,dy,seconds), "
+            "camera_drag(dx,dy,seconds), toggle_shift_lock, click(x,y,normalized=true), wait(seconds). "
+            "Preferir microacciones precisas: movimiento 0.20-0.55 s y camara 0.06-0.16 s. "
+            "No cambies W/A/D sin una razon visible. Si una accion no produjo progreso, "
+            "cambia el enfoque: reorienta camara, usa otra direccion o prueba una accion contextual. "
+            "Si la confianza es baja, espera o reobserva en vez de hacer clics aleatorios. "
+            "Para UI, estima las coordenadas en escala 0..1000 y solo haz click si ves claramente "
+            "el objetivo. Para la camara NO uses click izquierdo. "
             + controls +
-            "\nOBJETIVO: " + str(goal) +
+            "\nOBJETIVO ACTUAL: " + str(goal) +
             "\nACCION ANTERIOR: " + (previous_action or "ninguna") +
-            "\nAPRENDIZAJE: " + hint[:450]
+            "\nULTIMA OBSERVACION: " + (brain.last_observation or "ninguna") +
+            "\nACCIONES RECIENTES: " + history +
+            "\nACCIONES SIN PROGRESO: " + no_progress +
+            "\nINDICE DE ATASCAMIENTO: " + stuck +
+            "\nAPRENDIZAJE PERSISTENTE: " + hint[:500]
         )
 
         msg = {
             "role": "user",
-            "content": "Mira el fotograma y decide el siguiente pequeño plan.",
+            "content": (
+                "Analiza el fotograma actual. Identifica donde esta el jugador, "
+                "que objetivo visible conviene perseguir y cual es la UNICA accion "
+                "mas util ahora. Prioriza precision sobre velocidad."
+            ),
             "images": images_b64,
         }
 
         try:
-            result = self._normalize(self._parse(self._call(
-                [{"role":"system","content":system},msg],
-                model, 3.5, 40, 768
-            )))
+            raw = self._call(
+                [{"role": "system", "content": system}, msg],
+                model,
+                4.5,
+                96,
+                1024,
+                think=True,
+            )
+            result = self._normalize(self._parse(raw))
 
-            if profile == "roblox":
-                fixed=[]
-                for action in result.get("actions",[])[:3]:
-                    if not isinstance(action,dict):
-                        continue
-                    kind=str(action.get("type","")).lower()
-                    if kind=="mouse_move_rel":
-                        dx=int(float(action.get("dx",0) or 0))
-                        dy=int(float(action.get("dy",0) or 0))
-                        fixed.append({
-                            "type":"camera_drag",
-                            "dx":max(-700,min(700,dx*4)),
-                            "dy":max(-450,min(450,dy*4)),
-                            "seconds":0.11
-                        })
-                    elif kind in {"camera_drag","camera_turn"}:
-                        action["dx"]=max(-750,min(750,int(float(action.get("dx",0) or 0))))
-                        action["dy"]=max(-500,min(500,int(float(action.get("dy",0) or 0))))
-                        action["seconds"]=max(0.07,min(0.22,float(action.get("seconds",0.11))))
-                        fixed.append(action)
-                    elif kind=="hold" and str(action.get("key","")).lower() in {"w","a","d","s"}:
-                        action["seconds"]=max(0.45,min(1.0,float(action.get("seconds",0.65))))
-                        fixed.append(action)
-                    elif kind=="keys":
-                        keys={str(x).lower() for x in action.get("keys",[])}
-                        if {"shift","w"} <= keys:
-                            action["keys"]=["shift","w"]
-                            action["seconds"]=0.50
-                            fixed.append(action)
-                    elif kind in {"press","click"}:
-                        fixed.append(action)
-                    elif kind in {"mouse_button_down","mouse_button_up"}:
-                        fixed.append(action)
-                result["actions"]=fixed[:3]
+            # Algunos VLM omiten actions pero devuelven una accion directa.
+            if not result.get("actions"):
+                direct = result.get("action")
+                if isinstance(direct, dict):
+                    result["actions"] = [direct]
+
+            fixed = []
+            for action in (result.get("actions") or [])[:1]:
+                fixed.append(brain.validate_action(action))
+            if fixed:
+                result["actions"] = fixed
+            else:
+                result["actions"] = []
+
+            result["actions"] = result["actions"][:1]
+            result["reply"] = Agent._clean_visible_reply(result.get("reply", ""))
+            result["model"] = model
             return result
         except Exception as exc:
-            return {"reply":"","actions":[],"error":str(exc),"model":model}
+            # El fallback es deliberadamente pequeno y determinista; se usa
+            # solo cuando la percepcion no pudo responder.
+            return {
+                "reply": "",
+                "actions": [brain.fallback(0)] if profile == "roblox" else [],
+                "observation": "",
+                "plan": "fallback",
+                "decision_note": "La percepcion no respondio; se usa una accion segura de recuperacion.",
+                "confidence": 0.0,
+                "error": str(exc),
+                "model": model,
+            }
 
     def autonomous_reflection(self):
         """Genera una reflexión operativa breve para la memoria privada."""
@@ -375,6 +416,15 @@ class Agent:
             return self.decisions.recent(limit, context)
         except Exception:
             return []
+
+    def game_reset(self, goal, profile):
+        self.game_brain.reset(goal, profile)
+
+    def game_feedback(self, observation, action, reward, confidence=0.0, note=""):
+        self.game_brain.feedback(observation, action, reward, confidence, note)
+
+    def game_validate_action(self, action):
+        return self.game_brain.validate_action(action)
 
     def game_state_key(self, frame, profile="generic"):
         return self.game_learner.state_key(frame, profile)
