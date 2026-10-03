@@ -206,7 +206,6 @@ class Agent:
         return self._apply_memory_actions(result)
 
     def vision(self, goal, images_b64, profile="generic"):
-        self.reset_stop()
         model = self._pick_vision_model()
         system = (
             "/no_think\n"
