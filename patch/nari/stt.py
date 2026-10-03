@@ -28,9 +28,15 @@ class VoiceListener:
         self.q=queue.Queue(maxsize=300)
         self.model=None
         self.ignore=False
+        self.force_command_until=0.0
 
     def set_ignore(self, value):
         self.ignore=bool(value)
+
+    def arm_command(self, seconds=8.0):
+        """Activa una captura de voz inmediata sin exigir la palabra de activación."""
+        self.force_command_until=time.monotonic()+max(2.0,float(seconds))
+        self.on_status("🎙 Habla ahora… no necesitas decir «NARI»")
 
     def _ensure_model(self):
         if self.model_dir.exists():
@@ -276,6 +282,16 @@ class VoiceListener:
                     continue
 
                 now=time.monotonic()
+
+                if not active and now < self.force_command_until:
+                    active=True
+                    started=now
+                    last_speech=now
+                    command_parts=[]
+                    command_rec=KaldiRecognizer(self.model,16000)
+                    self.on_status("🎙 Captura directa activada • habla ahora")
+                    idle_rec=KaldiRecognizer(self.model,16000)
+                    continue
 
                 if not active:
                     accepted=idle_rec.AcceptWaveform(data)
