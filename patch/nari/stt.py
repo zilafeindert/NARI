@@ -27,6 +27,10 @@ class VoiceListener:
         self.thread=None
         self.q=queue.Queue(maxsize=300)
         self.model=None
+        self.ignore=False
+
+    def set_ignore(self, value):
+        self.ignore=bool(value)
 
     def start(self):
         if self.running: return
@@ -125,6 +129,9 @@ class VoiceListener:
                     try:
                         data=self.q.get(timeout=0.15)
                     except queue.Empty:
+                        continue
+
+                    if self.ignore:
                         continue
 
                     now=time.monotonic()
