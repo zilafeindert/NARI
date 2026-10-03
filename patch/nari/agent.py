@@ -208,6 +208,17 @@ class Agent:
                 try:
                     if key in {"reward", "progress", "confidence"}:
                         out[key] = float(result[key])
+                    elif key in {
+                        "done", "hit_confirmed", "block_success", "ko_confirmed", "death_or_ko",
+                        "ability_whiff", "cooldown_active", "target_visible", "target_is_dummy",
+                        "target_stunned", "target_blocking", "opponent_attacking",
+                        "player_stunned", "player_ragdolled", "ability_confirmed", "player_dead"
+                    }:
+                        value=result[key]
+                        if isinstance(value,str):
+                            out[key]=value.strip().lower() in {"true","1","yes","si","sí"}
+                        else:
+                            out[key]=bool(value)
                     else:
                         out[key] = result[key]
                 except Exception:
