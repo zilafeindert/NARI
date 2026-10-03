@@ -656,7 +656,8 @@ class NariApp:
 
                     if result.get("error"):
                         self._status("⚠ visión: "+str(result["error"])[:110])
-                        action_summary=""
+                        actions=[]
+                        executable=[]
                     else:
                         actions=result.get("actions") or []
                         executable=[
@@ -666,15 +667,14 @@ class NariApp:
                             }
                         ]
 
-                        # Si la IA visual no propone una acción ejecutable,
-                        # el aprendiz toma el control con exploración UCB/epsilon-greedy
-                        # usando experiencias persistentes.
-                        if self.learning_enabled and not executable and self.game_running:
-                            learned,state=self.agent.game_fallback_action(profile,frame,self.game_cycle)
-                            result["actions"]=[learned]
-                            result["reply"]="Estoy probando una estrategia que aún no conozco."
-                            executable=[learned]
-                            previous_note="fallback aprendido"
+                    # Incluso si la visión falla, el aprendiz local sigue actuando
+                    # y puede aprender de la respuesta visual del juego.
+                    if self.game_running and self.learning_enabled and not executable:
+                        learned,state=self.agent.game_fallback_action(profile,frame,self.game_cycle)
+                        result["actions"]=[learned]
+                        result["reply"]="La visión falló; sigo explorando con lo que ya aprendí."
+                        executable=[learned]
+                        previous_note="fallback por error o falta de acción"
 
                         # Tras una recompensa muy negativa, fuerza una corrección
                         # ocasional en lugar de repetir ciegamente la misma conducta.
