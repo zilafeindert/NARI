@@ -198,7 +198,7 @@ class Agent:
             "decision_note", "mode",
             "hit_confirmed", "block_success", "ko_confirmed", "death_or_ko",
             "ability_whiff", "cooldown_active", "target_visible",
-            "target_center_x", "target_distance", "target_distance_delta",
+            "target_center_x", "target_distance", "target_distance_delta", "target_name", "target_is_dummy",
             "enemy_health_delta", "player_health_delta", "aim_alignment_delta"
         ):
             if key in result:
@@ -275,14 +275,13 @@ class Agent:
             controls = (
                 "Jujutsu Shenanigans en PC: M1/click izquierdo = combo basico; 1/2/3/4 = "
                 "habilidades; Q = dash/escape; F = bloquear; R = especial; G = awakening; "
-                "W+W = sprint; Shift = Shift Lock. El HUD y el estado del personaje mandan: "
-                "no uses una habilidad si parece estar en cooldown, bloqueado o sin objetivo. "
-                "Busca al rival, acerca distancia con movimiento/dash, confirma impacto y "
-                "alterna ataque, defensa y reposicionamiento. Si el rival esta fuera del centro "
-                "(target_center_x < 0.40 o > 0.60), gira la camara hacia el rival con camera_turn "
-                "en vez de esperar otro ciclo. En JJS el giro usa RMB y debe ser corto pero visible. "
-                "Si el giro con mouse no produce cambio, prueba camera_key_turn con izquierda/derecha; "
-                "no gires si no hay objetivo."
+                "W+W = sprint; Shift = Shift Lock. El HUD y el estado del personaje mandan. "
+                "Busca primero el Dummy de entrenamiento si está presente. Identifica el nombre "
+                "o la silueta del Dummy y marca target_is_dummy=true solo con evidencia visible. "
+                "Si el objetivo está fuera del centro (target_center_x < 0.40 o > 0.60), "
+                "gira la cámara hacia él con camera_turn. El giro usa RMB y debe producir un "
+                "cambio visible entre fotogramas. Si no produce cambio, prueba camera_key_turn. "
+                "Cuando el Dummy esté centrado y a distancia de ataque, prioriza M1. No ataques al aire."
             )
         elif profile == "roblox":
             controls = (
@@ -340,7 +339,10 @@ class Agent:
                 "cooldown_active, enemy_health_delta, player_health_delta, target_visible, "
                 "target_center_x, target_distance_delta y aim_alignment_delta cuando puedas. "
                 "enemy/player health delta: negativo significa perdida de vida; "
+                "target_distance: 0.0=muy cerca y 1.0=muy lejos cuando pueda estimarse; "
                 "target_distance_delta: negativo significa que se acerco; "
+                "target_is_dummy: true solo con evidencia de que es el Dummy de entrenamiento; "
+                "target_name: nombre visible si existe; "
                 "aim_alignment_delta: positivo significa que el objetivo quedo mas centrado. "
                 "No inventes un impacto si no hay evidencia temporal."
             ),
