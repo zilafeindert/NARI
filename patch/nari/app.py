@@ -91,7 +91,14 @@ class NariApp:
         self.jjs_dummy_last_seen = 0.0
         self.jjs_dummy_lost_cycles = 0
         self.jjs_dummy_center = None
-        self.jjs_camera_sweep = 0
+        self.jjs_dummy_center_smooth = None
+        self.jjs_dummy_stable_hits = 0
+        self.jjs_camera_x_sign = 1
+        self.jjs_camera_y_sign = 1
+        self.jjs_last_camera_command = None
+        self.jjs_last_camera_action_ts = 0.0
+        self.jjs_search_next_ts = 0.0
+        self.jjs_search_direction = 1
         self.game_recommended_actions = []
         self.game_recommendation_ts = 0.0
         self.game_action_lock = threading.Lock()
@@ -562,7 +569,14 @@ class NariApp:
         self.jjs_dummy_last_seen=0.0
         self.jjs_dummy_lost_cycles=0
         self.jjs_dummy_center=None
-        self.jjs_camera_sweep=0
+        self.jjs_dummy_center_smooth=None
+        self.jjs_dummy_stable_hits=0
+        self.jjs_camera_x_sign=1
+        self.jjs_camera_y_sign=1
+        self.jjs_last_camera_command=None
+        self.jjs_last_camera_action_ts=0.0
+        self.jjs_search_next_ts=0.0
+        self.jjs_search_direction=1
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -790,13 +804,32 @@ class NariApp:
                 and str(x.get("type","")).lower() not in {"remember","social_update","self_update","drive_update","private_note","done"}
             ][:2]
 
-            # Control local del objetivo JJS. Esta capa no depende de que el VLM
-            # haya escrito correctamente el nombre "Dummy": si el marcador verde es visible,
-            # el apuntado se ejecuta de forma determinista.
+            if profile == "jjs":
+                safe_candidates=[]
+                for candidate in candidates:
+                    item=dict(candidate)
+                    kind=str(item.get("type","")).lower()
+                    if kind in {"camera_turn","camera_drag","camera_key_turn"}:
+                        try:
+                            cdx=int(float(item.get("dx",0) or 0))
+                            cdy=int(float(item.get("dy",0) or 0))
+                        except Exception:
+                            cdx,cdy=0,0
+                        item["dx"]=max(-55,min(55,cdx))
+                        item["dy"]=max(-40,min(40,cdy))
+                        item["seconds"]=0.06
+                        if abs(item["dx"])<5 and abs(item["dy"])<5:
+                            continue
+                    safe_candidates.append(item)
+                candidates=safe_candidates[:2]
+
+            # Control local del Dummy en JJS.
+            # No confiamos en un solo frame: el marcador debe ser estable antes de mover la camara.
             forced_action=None
             forced_source=""
+            marker=None
+            marker_stable=False
             if profile == "jjs":
-                marker=None
                 try:
                     marker=self.screen.find_dummy_marker(frame)
                 except Exception:
@@ -804,38 +837,61 @@ class NariApp:
 
                 now_target=time.monotonic()
                 if marker is not None:
+                    raw_center=(float(marker["center_x"]),float(marker["center_y"]))
+
+                    previous_smooth=self.jjs_dummy_center_smooth
+                    if previous_smooth is None:
+                        self.jjs_dummy_center_smooth=raw_center
+                        self.jjs_dummy_stable_hits=1
+                    else:
+                        jump=((raw_center[0]-previous_smooth[0])**2 + (raw_center[1]-previous_smooth[1])**2)**0.5
+                        if jump <= 0.16:
+                            # Filtro EMA: elimina saltos del detector sin congelar el objetivo.
+                            self.jjs_dummy_center_smooth=(
+                                previous_smooth[0]*0.72 + raw_center[0]*0.28,
+                                previous_smooth[1]*0.72 + raw_center[1]*0.28,
+                            )
+                            self.jjs_dummy_stable_hits=min(8,self.jjs_dummy_stable_hits+1)
+                        else:
+                            # Cambio demasiado grande: no hacemos un giro en este frame.
+                            self.jjs_dummy_center_smooth=raw_center
+                            self.jjs_dummy_stable_hits=1
+
                     self.jjs_dummy_last_seen=now_target
                     self.jjs_dummy_lost_cycles=0
-                    self.jjs_dummy_center=(float(marker["center_x"]),float(marker["center_y"]))
+                    self.jjs_dummy_center=self.jjs_dummy_center_smooth
+                    marker_stable=self.jjs_dummy_stable_hits>=2
 
                     result["target_visible"]=True
                     result["target_is_dummy"]=True
-                    result["target_center_x"]=float(marker["center_x"])
-                    result["target_center_y"]=float(marker["center_y"])
                     result["target_name"]="Dummy"
+                    result["target_center_x"]=self.jjs_dummy_center[0]
+                    result["target_center_y"]=self.jjs_dummy_center[1]
 
-                    if not result.get("target_distance"):
-                        marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
-                        size_ratio=marker_size/max(1,frame.shape[1])
-                        if size_ratio < 0.022:
-                            fallback_distance=0.90
-                        elif size_ratio < 0.035:
-                            fallback_distance=0.76
-                        elif size_ratio < 0.052:
-                            fallback_distance=0.58
-                        else:
-                            fallback_distance=0.38
-                        result["target_distance"]=fallback_distance
+                    # Para JJS, el tamaño del marcador local es una señal mas confiable
+                    # que una estimacion VLM aislada de distancia.
+                    marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
+                    size_ratio=marker_size/max(1,frame.shape[1])
+                    if size_ratio < 0.022:
+                        result["target_distance"]=0.90
+                    elif size_ratio < 0.035:
+                        result["target_distance"]=0.76
+                    elif size_ratio < 0.052:
+                        result["target_distance"]=0.58
+                    else:
+                        result["target_distance"]=0.38
                 else:
                     self.jjs_dummy_lost_cycles+=1
-                    if self.jjs_dummy_center is not None and (now_target-self.jjs_dummy_last_seen) <= 0.22:
+                    # Conservamos el ultimo centro solo como memoria, no como permiso
+                    # para seguir moviendo la camara a ciegas.
+                    if (self.jjs_dummy_center_smooth is not None
+                            and (now_target-self.jjs_dummy_last_seen)<=0.12):
                         result["target_visible"]=True
                         result["target_is_dummy"]=True
                         result["target_name"]="Dummy"
-                        result["target_center_x"]=self.jjs_dummy_center[0]
-                        result["target_center_y"]=self.jjs_dummy_center[1]
+                        result["target_center_x"]=self.jjs_dummy_center_smooth[0]
+                        result["target_center_y"]=self.jjs_dummy_center_smooth[1]
 
-                visible=bool(result.get("target_visible",False))
                 try:
                     target_x=float(result.get("target_center_x",0.5) or 0.5)
                 except Exception:
@@ -847,46 +903,71 @@ class NariApp:
                 target_x=max(0.0,min(1.0,target_x))
                 target_y=max(0.0,min(1.0,target_y))
 
-                target_name=str(result.get("target_name","") or "").lower()
-                is_dummy=bool(result.get("target_is_dummy",False)) or "dummy" in target_name or "dummie" in target_name
-                centered=abs(target_x-0.5) <= 0.055 and abs(target_y-0.5) <= 0.070
+                centered=abs(target_x-0.5)<=0.070 and abs(target_y-0.5)<=0.085
+                now_action=time.monotonic()
 
-                try:
-                    distance=float(result.get("target_distance",0.82) or 0.82)
-                except Exception:
-                    distance=0.82
-                distance=max(0.0,min(1.0,distance))
+                # Ajuste automatico de signo: si el giro anterior alejo el marcador
+                # del centro, invertimos solo ese eje.
+                previous_cmd=self.jjs_last_camera_command
+                if marker is not None and marker_stable and previous_cmd is not None:
+                    _,old_ex,old_ey,old_ts=previous_cmd
+                    if now_target-old_ts < 0.80:
+                        new_ex=target_x-0.5
+                        new_ey=target_y-0.5
+                        if abs(old_ex)>=0.035 and abs(new_ex)>abs(old_ex)+0.015:
+                            self.jjs_camera_x_sign*=-1
+                        if abs(old_ey)>=0.035 and abs(new_ey)>abs(old_ey)+0.015:
+                            self.jjs_camera_y_sign*=-1
+                    self.jjs_last_camera_command=None
 
-                if visible and is_dummy and not centered:
-                    # El historial de acciones no puede bloquear el apuntado.
-                    dx=int(max(-300,min(300,(target_x-0.5)*920)))
-                    dy=int(max(-220,min(220,(target_y-0.5)*760)))
-                    if abs(dx)<8 and target_x != 0.5:
-                        dx=8 if target_x>0.5 else -8
-                    if abs(dy)<8 and target_y != 0.5:
-                        dy=8 if target_y>0.5 else -8
-                    forced_action={
-                        "type":"camera_turn",
-                        "dx":dx,
-                        "dy":dy,
-                        "seconds":0.10,
-                    }
-                    forced_source="target-lock"
-                elif visible and is_dummy and centered:
-                    if distance > 0.62:
-                        forced_action={"type":"hold","key":"w","seconds":0.24}
+                if marker_stable and not centered:
+                    elapsed=now_action-self.jjs_last_camera_action_ts
+                    if elapsed>=0.15:
+                        ex=target_x-0.5
+                        ey=target_y-0.5
+                        dx=int(ex*300*self.jjs_camera_x_sign)
+                        dy=int(ey*230*self.jjs_camera_y_sign)
+                        dx=max(-48,min(48,dx))
+                        dy=max(-36,min(36,dy))
+                        if abs(ex)>0.070 and abs(dx)<7:
+                            dx=7 if ex>0 else -7
+                        if abs(ey)>0.085 and abs(dy)<6:
+                            dy=6 if ey>0 else -6
+
+                        if dx or dy:
+                            forced_action={
+                                "type":"camera_turn",
+                                "dx":dx,
+                                "dy":dy,
+                                "seconds":0.065,
+                            }
+                            forced_source="target-lock"
+                            self.jjs_last_camera_command=(dx,ex,ey,now_target)
+                            self.jjs_last_camera_action_ts=now_action
+
+                elif marker_stable and centered:
+                    try:
+                        distance=float(result.get("target_distance",0.82) or 0.82)
+                    except Exception:
+                        distance=0.82
+                    distance=max(0.0,min(1.0,distance))
+                    if distance>0.60:
+                        forced_action={"type":"hold","key":"w","seconds":0.18}
                         forced_source="target-approach"
                     elif not bool(result.get("cooldown_active",False)):
                         forced_action={"type":"m1","seconds":0.055}
                         forced_source="target-attack"
-                elif not visible and self.jjs_dummy_lost_cycles >= 2:
-                    self.jjs_camera_sweep+=1
-                    sweep=-220 if self.jjs_camera_sweep % 2 else 220
+
+                # Sin marcador estable no hacemos un sweep agresivo. Dejamos que el VLM
+                # haga busqueda normal y mas tarde sanitizamos cualquier giro que proponga.
+                if marker is None and self.jjs_dummy_lost_cycles>=12 and now_action>=self.jjs_search_next_ts:
+                    self.jjs_search_direction*=-1
+                    self.jjs_search_next_ts=now_action+1.25
                     forced_action={
                         "type":"camera_turn",
-                        "dx":sweep,
+                        "dx":28*self.jjs_search_direction,
                         "dy":0,
-                        "seconds":0.10,
+                        "seconds":0.055,
                     }
                     forced_source="target-search"
 
@@ -896,6 +977,15 @@ class NariApp:
                 source=forced_source
             else:
                 action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
+                if profile == "jjs" and str(action.get("type","")).lower() in {"camera_turn","camera_drag","camera_key_turn"}:
+                    if time.monotonic()-self.jjs_last_camera_action_ts < 0.15:
+                        action={"type":"wait","seconds":0.06}
+                        source="camera-rate-limit"
+                    else:
+                        try:
+                            self.jjs_last_camera_action_ts=time.monotonic()
+                        except Exception:
+                            pass
 
             try:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
@@ -908,6 +998,9 @@ class NariApp:
             goal_state = str(result.get("goal_state", "") or "")
 
             self.agent.decision_record(profile, goal, result, decision)
+
+            if str(action.get("type","")).lower() not in {"camera_turn","camera_drag","camera_key_turn"}:
+                self.jjs_last_camera_command=None
 
             previous_action = action
             previous_state = state
