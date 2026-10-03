@@ -1,0 +1,3 @@
+NARI 5.2.3
+
+Correccion de arranque: se agregan los modulos runtime que faltaban en el paquete de actualizacion, incluido personality.py y los servicios base de memoria, entrada de PC, voz, vision y web.
