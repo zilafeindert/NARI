@@ -239,62 +239,69 @@ class Agent:
     def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
         model = self._pick_vision_model()
         hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
-        # El controlador de juego necesita la decisión más pequeña posible.
-        # No metemos el historial/memoria completa en cada fotograma porque eso
-        # aumenta el contexto y retrasa la respuesta visual.
+        if profile == "roblox":
+            controls = (
+                "CONTROLES: W/A/S/D mover; SPACE saltar; SHIFT+W correr; E interactuar; "
+                "Q/R/F/1/2/3 acciones situacionales; click interactuar con UI; "
+                "camera_drag = RMB + movimiento del mouse para cámara."
+            )
+        else:
+            controls = GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
         system = (
             "/no_think\n"
-            "Eres el controlador en tiempo real. Mira SOLO la imagen y devuelve UNA sola acción. "
-            "JSON mínimo: {reply,actions,reward,progress,observation}. "
-            "Para Roblox: W/A/D para movimiento; SPACE para saltar; SHIFT para correr; "
-            "E para interactuar; click para interfaces; camera_drag para girar cámara con RMB. "
-            "No uses wait si puedes actuar. No devuelvas código ni explicación. "
-            "ACCION ANTERIOR: " + (previous_action or "ninguna") +
+            "Control visual en tiempo real. Devuelve SOLO JSON y UNA acción ejecutable. "
+            "Formato: {\"actions\":[{\"type\":\"...\"}]} . "
+            "No escribas explicaciones, código, reward ni texto largo. "
+            "Elige la acción más útil para avanzar el objetivo. "
+            + controls +
             "\nOBJETIVO: " + str(goal) +
-            "\nAPRENDIZAJE: " + hint +
-            "\n"+GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
+            "\nACCION ANTERIOR: " + (previous_action or "ninguna") +
+            "\nMEMORIA LOCAL: " + hint[:500]
         )
         msg = {
             "role": "user",
-            "content": "Fotograma mas reciente del juego. Elige la siguiente accion y evalua la anterior.",
+            "content": "Mira el fotograma y elige la siguiente acción.",
             "images": images_b64,
         }
         try:
-            result = self._normalize(self._parse(self._call(
-                [{"role": "system", "content": system}, msg],
-                model, 4, 36, 768
+            result=self._normalize(self._parse(self._call(
+                [{"role":"system","content":system},msg],
+                model, 3.5, 28, 768
             )))
-            # En Roblox, mover cámara significa RMB + movimiento relativo.
             if profile == "roblox":
                 fixed=[]
-                for action in result.get("actions", []):
-                    if not isinstance(action, dict):
-                        continue
+                for action in result.get("actions",[])[:2]:
+                    if not isinstance(action,dict): continue
                     kind=str(action.get("type","")).lower()
-                    if kind == "mouse_move_rel":
+                    if kind=="mouse_move_rel":
                         dx=int(float(action.get("dx",0) or 0))
                         dy=int(float(action.get("dy",0) or 0))
-                        scale=3.3
                         fixed.append({
                             "type":"camera_drag",
-                            "dx":int(max(-650,min(650,round(dx*scale)))),
-                            "dy":int(max(-420,min(420,round(dy*scale)))),
-                            "seconds":0.16,
+                            "dx":max(-700,min(700,dx*4)),
+                            "dy":max(-450,min(450,dy*4)),
+                            "seconds":0.11
                         })
-                    elif kind == "camera_drag":
-                        action["dx"]=int(max(-700,min(700,float(action.get("dx",0) or 0))))
-                        action["dy"]=int(max(-450,min(450,float(action.get("dy",0) or 0))))
-                        action["seconds"]=max(0.08,min(0.30,float(action.get("seconds",0.16))))
+                    elif kind in {"camera_drag","camera_turn"}:
+                        action["dx"]=max(-750,min(750,int(float(action.get("dx",0) or 0))))
+                        action["dy"]=max(-500,min(500,int(float(action.get("dy",0) or 0))))
+                        action["seconds"]=max(0.07,min(0.20,float(action.get("seconds",0.11))))
                         fixed.append(action)
-                    elif kind == "hold" and str(action.get("key","")).lower() in {"w","a","d","s"}:
-                        action["seconds"]=max(0.35,min(1.0,float(action.get("seconds",0.60))))
+                    elif kind=="hold" and str(action.get("key","")).lower() in {"w","a","d","s"}:
+                        action["seconds"]=max(0.35,min(0.80,float(action.get("seconds",0.50))))
                         fixed.append(action)
-                    else:
+                    elif kind=="keys":
+                        keys={str(x).lower() for x in action.get("keys",[])}
+                        if {"shift","w"} <= keys:
+                            action["keys"]=["shift","w"]
+                            action["seconds"]=0.45
+                            fixed.append(action)
+                    elif kind in {"press","click"}:
                         fixed.append(action)
-                result["actions"]=fixed
+                result["actions"]=fixed[:1]
             return result
         except Exception as exc:
-            return {"reply": "", "actions": [], "error": str(exc), "model": model}
+            return {"reply":"","actions":[],"error":str(exc),"model":model}
 
     def game_state_key(self, frame, profile="generic"):
         return self.game_learner.state_key(frame, profile)
