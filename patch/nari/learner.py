@@ -378,7 +378,7 @@ class GameLearner:
             score -= 0.52
         if cooldown and key in {
             "m1", "press_1", "press_2", "press_3", "press_4",
-            "press_r", "press_g", "dash_q", "block_f"
+            "special_r", "awaken_g", "dash_q", "block_f"
         }:
             score -= 0.32
 
@@ -403,7 +403,7 @@ class GameLearner:
             score -= min(0.32, 0.065 * (stagnation - 1))
 
         # Acciones manifiestamente equivocadas reciben una senal negativa visible.
-        if key in {"m1", "press_1", "press_2", "press_3", "press_4", "press_r"}:
+        if key in {"m1", "press_1", "press_2", "press_3", "press_4", "special_r", "awaken_g"}:
             if not target_visible:
                 score -= 0.24
         if key == "dash_q" and target_visible and distance_delta > 0.18:
@@ -415,23 +415,43 @@ class GameLearner:
     def action_key(action: dict) -> str:
         if not isinstance(action, dict):
             return "none"
+
         kind = str(action.get("type", "")).lower().strip()
+
         if kind == "hold":
             return f"hold_{str(action.get('key','w')).lower()}"
+
         if kind == "press":
             key = str(action.get("key", "")).lower()
-            if key == "space":
-                return "space"
-            return f"press_{key or 'unknown'}"
+            aliases = {
+                "q": "dash_q",
+                "r": "special_r",
+                "g": "awaken_g",
+                "space": "jump",
+            }
+            return aliases.get(key, f"press_{key or 'unknown'}")
+
+        if kind == "block":
+            return "block_f"
+
+        if kind == "double_tap_w":
+            return "double_tap_w"
+
         if kind in {"mouse_move_rel","camera_drag","camera_turn","camera_key_turn"}:
             dx = float(action.get("dx", 0) or 0)
             dy = float(action.get("dy", 0) or 0)
             if abs(dx) > abs(dy):
                 return "look_right" if dx > 0 else "look_left"
+            if abs(dy) > 0:
+                return "look_down" if dy > 0 else "look_up"
+            return "camera"
+
         if kind in {"click", "double_click"}:
             return "click"
+
         if kind == "wait":
             return "wait"
+
         return kind or "unknown"
 
     @staticmethod
