@@ -99,6 +99,13 @@ class NariApp:
         self.jjs_last_camera_action_ts = 0.0
         self.jjs_search_next_ts = 0.0
         self.jjs_search_direction = 1
+        self.jjs_combat_phase = "search"
+        self.jjs_target_kind = "none"
+        self.jjs_confirmed_hits = 0
+        self.jjs_last_hit_ts = 0.0
+        self.jjs_last_dash_ts = -10.0
+        self.jjs_last_block_ts = -10.0
+        self.jjs_last_tactical_ts = -10.0
         self.game_recommended_actions = []
         self.game_recommendation_ts = 0.0
         self.game_action_lock = threading.Lock()
@@ -577,6 +584,13 @@ class NariApp:
         self.jjs_last_camera_action_ts=0.0
         self.jjs_search_next_ts=0.0
         self.jjs_search_direction=1
+        self.jjs_combat_phase="search"
+        self.jjs_target_kind="none"
+        self.jjs_confirmed_hits=0
+        self.jjs_last_hit_ts=0.0
+        self.jjs_last_dash_ts=-10.0
+        self.jjs_last_block_ts=-10.0
+        self.jjs_last_tactical_ts=-10.0
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -691,6 +705,100 @@ class NariApp:
         # No se usa una segunda cola de acciones.
         while self.game_running:
             time.sleep(0.25)
+
+    def _jjs_combat_override(self, result, is_dummy=False):
+        """Ejecutivo rapido de combate: decide defensa/escape/rango sin esperar otra capa."""
+        if not isinstance(result, dict):
+            return None, "combat-none"
+
+        now=time.monotonic()
+
+        def flag(name):
+            return bool(result.get(name,False))
+
+        def num(name, default=0.0):
+            try:
+                return float(result.get(name,default) or default)
+            except Exception:
+                return float(default)
+
+        visible=flag("target_visible")
+        confidence=num("confidence",0.0)
+        distance=max(0.0,min(1.0,num("target_distance",0.75)))
+        hit=flag("hit_confirmed")
+        whiff=flag("ability_whiff")
+        target_stunned=flag("target_stunned")
+        target_blocking=flag("target_blocking")
+        opponent_attacking=flag("opponent_attacking")
+        player_stunned=flag("player_stunned")
+        player_ragdolled=flag("player_ragdolled")
+        player_dead=flag("player_dead") or flag("death_or_ko")
+
+        if hit:
+            self.jjs_confirmed_hits=min(8,self.jjs_confirmed_hits+1)
+            self.jjs_last_hit_ts=now
+        if whiff:
+            self.jjs_confirmed_hits=0
+
+        # Recuperacion: nunca seguimos atacando a ciegas si el jugador esta incapacitado.
+        if player_dead:
+            self.jjs_combat_phase="recover"
+            return {"type":"wait","seconds":0.16}, "combat-recover"
+
+        if player_stunned or player_ragdolled:
+            if now-self.jjs_last_dash_ts>=0.70:
+                self.jjs_last_dash_ts=now
+                self.jjs_combat_phase="escape"
+                return {"type":"press","key":"q"}, "combat-escape"
+            self.jjs_combat_phase="recover"
+            return {"type":"wait","seconds":0.10}, "combat-stun-wait"
+
+        if not visible:
+            self.jjs_combat_phase="search"
+            return None, "combat-search"
+
+        # Defensa reactiva: el bloqueo solo dura microventanas, despues se vuelve a leer.
+        if opponent_attacking and now-self.jjs_last_block_ts>=0.32:
+            self.jjs_last_block_ts=now
+            self.jjs_combat_phase="defend"
+            return {"type":"block","seconds":0.16}, "combat-defend"
+
+        if target_blocking:
+            self.jjs_combat_phase="guard"
+            if distance>0.70 and now-self.jjs_last_tactical_ts>=0.30:
+                self.jjs_last_tactical_ts=now
+                return {"type":"hold","key":"w","seconds":0.12}, "combat-close-guard"
+            # Contra guardia: no spamear M1. Dejamos al VLM elegir una habilidad
+            # cuando haya evidencia de que sirve.
+            return None, "combat-guard-read"
+
+        if target_stunned:
+            self.jjs_combat_phase="punish"
+            if distance>0.58:
+                return {"type":"hold","key":"w","seconds":0.14}, "combat-punish-close"
+            return {"type":"m1","seconds":0.055}, "combat-punish-m1"
+
+        if distance>0.72:
+            self.jjs_combat_phase="approach"
+            if now-self.jjs_last_tactical_ts>=0.24:
+                self.jjs_last_tactical_ts=now
+                return {"type":"hold","key":"w","seconds":0.16}, "combat-approach"
+
+        if distance>0.54:
+            self.jjs_combat_phase="pressure"
+            if now-self.jjs_last_dash_ts>=1.0 and self.jjs_confirmed_hits==0:
+                # Solo usa Q para cerrar si estamos realmente lejos; en neutral no se gasta.
+                self.jjs_last_dash_ts=now
+                return {"type":"press","key":"q"}, "combat-close-dash"
+
+        if distance<=0.56:
+            self.jjs_combat_phase="engage"
+            # Dummy: una vez confirmado un golpe, permite que el VLM extienda el combo.
+            # Humano: la accion VLM pasara por el filtro del loop para leer su apertura.
+            return None, "combat-engage"
+
+        self.jjs_combat_phase="neutral"
+        return None, "combat-neutral"
 
     def _game_loop(self, profile: str):
         goal = self.game_goal.get().strip() or "Explora el juego, aprende los controles y completa objetivos visibles."
@@ -1023,10 +1131,54 @@ class NariApp:
                                 self.jjs_last_camera_command=(vdx,vx-0.5,vy-0.5,now_vlm)
                                 self.jjs_last_camera_action_ts=now_vlm
 
+            # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
+            # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
+            tactical_action=None
+            tactical_source=""
+            if profile == "jjs":
+                local_visible=bool(result.get("target_visible",False))
+                local_dummy=bool(result.get("target_is_dummy",False)) and local_visible
+                target_name_check=str(result.get("target_name","") or "").lower()
+                if local_dummy or ("dummy" not in target_name_check and local_visible):
+                    tactical_action,tactical_source=self._jjs_combat_override(
+                        result, is_dummy=local_dummy
+                    )
+
+                # Si hay Dummy centrado y ya hubo un impacto confirmado, una habilidad
+                # candidata puede continuar la secuencia; asi el Dummy sirve tambien
+                # para aprender rutas de combo, no solo M1.
+                if (
+                    local_dummy
+                    and tactical_action is None
+                    and self.jjs_confirmed_hits>=1
+                    and not bool(result.get("cooldown_active",False))
+                ):
+                    for candidate in candidates:
+                        kind=str(candidate.get("type","")).lower()
+                        key=str(candidate.get("key","")).lower()
+                        if kind=="press" and key in {"1","2","3","4","r"}:
+                            tactical_action=candidate
+                            tactical_source="dummy-combo-extension"
+                            self.jjs_confirmed_hits=0
+                            break
+
             confidence=float(result.get("confidence",0.0) or 0.0)
             if forced_action is not None:
                 action=self.agent.game_validate_action(forced_action)
                 source=forced_source
+            elif tactical_action is not None:
+                action=self.agent.game_validate_action(tactical_action)
+                source=tactical_source
+            elif profile == "jjs" and bool(result.get("target_visible",False)) and confidence>=0.58 and candidates:
+                # Con objetivo humano visible, conservar la primera decision del VLM
+                # en vez de dejar que el fallback exploratorio la sustituya.
+                chosen=candidates[0]
+                chosen_kind=str(chosen.get("type","")).lower()
+                if chosen_kind in {"m1","block","hold","double_tap_w","press","keys","camera_turn","camera_drag","camera_key_turn","wait"}:
+                    action=self.agent.game_validate_action(chosen)
+                    source="vision-combat"
+                else:
+                    action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
             else:
                 action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
                 if profile == "jjs" and str(action.get("type","")).lower() in {"camera_turn","camera_drag","camera_key_turn"}:
@@ -1065,7 +1217,8 @@ class NariApp:
             stats = self.agent.game_stats(profile) if self.learning_enabled else {"experiences":0,"avg_reward":0.0}
             status_text = (
                 f"ACTIVO • {profile} • ciclo {self.game_cycle} • accion: {decision} • "
-                f"confianza {confidence:.2f} • Δrecompensa {reward:+.2f} • visual {raw_reward:+.2f} • {source}"
+                f"confianza {confidence:.2f} • Δrecompensa {reward:+.2f} • visual {raw_reward:+.2f} • "
+                f"combate {getattr(self,'jjs_combat_phase','n/a')} • {source}"
             )
             self.root.after(0, lambda s=status_text: self.game_status.set(s))
 
