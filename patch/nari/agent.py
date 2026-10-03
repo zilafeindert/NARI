@@ -311,7 +311,7 @@ class Agent:
             "double_tap_w, keys(keys=[shift,w],seconds), press(key=space/e/q/r/f/g/1/2/3/4), "
             "camera_turn(dx,dy,seconds), camera_drag(dx,dy,seconds), toggle_shift_lock, "
             "click(x,y,normalized=true), wait(seconds). "
-            "Haz microacciones: mover 0.18-0.58 s; camara 0.06-0.16 s; giros pequenos. "
+            "Haz microacciones: mover 0.10-0.38 s; camara 0.035-0.10 s; giros cortos y visibles. "
             "No uses un giro grande para buscar a ciegas. Para seguir un objetivo visible, "
             "elige la direccion que lo acerque. Si no hay objetivo visible, explora: mover, "
             "reorientar, cambiar lateral, saltar o interactuar de forma controlada. "
