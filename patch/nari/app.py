@@ -676,8 +676,12 @@ class NariApp:
             if previous_action is not None and previous_frame is not None:
                 raw_reward = self.agent.game_learner.frame_reward(previous_frame, frame)
 
-            temporal = max(1, min(4, int(self.settings.get("temporal_frames", 3))))
-            imgs, latest = self.screen.image_bytes(temporal, max_width=int(self.settings.get("game_analysis_width", 768)))
+            configured_temporal = max(1, min(4, int(self.settings.get("temporal_frames", 2))))
+            temporal = 2 if profile == "jjs" else configured_temporal
+            imgs, latest = self.screen.image_bytes(
+                temporal,
+                max_width=int(self.settings.get("game_analysis_width", 640))
+            )
             if not imgs or latest is None:
                 time.sleep(0.03)
                 continue
@@ -698,20 +702,32 @@ class NariApp:
                         repeat_count += 1
                     else:
                         break
-                reward = self.agent.game_strict_reward(
-                    raw_reward,
-                    previous_action,
-                    result,
-                    repeat_count,
-                    getattr(self.agent.game_brain, "no_progress_count", 0),
-                )
+                if profile == "jjs":
+                    reward = self.agent.game_jjs_reward(
+                        raw_reward,
+                        previous_action,
+                        result,
+                        repeat_count,
+                        getattr(self.agent.game_brain, "no_progress_count", 0),
+                    )
+                else:
+                    reward = self.agent.game_strict_reward(
+                        raw_reward,
+                        previous_action,
+                        result,
+                        repeat_count,
+                        getattr(self.agent.game_brain, "no_progress_count", 0),
+                    )
                 if self.learning_enabled:
                     try:
                         self.agent.game_record(
                             profile, previous_state, previous_action, reward,
                             "strict_closed_loop",
                             f"raw={raw_reward:+.2f}; effect={float(result.get('action_effect',0.0) or 0.0):+.2f}; "
-                            f"progress={float(result.get('progress_delta',0.0) or 0.0):+.2f}",
+                            f"progress={float(result.get('progress_delta',0.0) or 0.0):+.2f}; "
+                            f"hit={bool(result.get('hit_confirmed',False))}; "
+                            f"enemy_hp={float(result.get('enemy_health_delta',0.0) or 0.0):+.2f}; "
+                            f"player_hp={float(result.get('player_health_delta',0.0) or 0.0):+.2f}",
                         )
                     except Exception:
                         pass
