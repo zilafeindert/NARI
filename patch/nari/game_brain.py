@@ -86,6 +86,15 @@ class GameBrain:
         out = dict(action)
         kind = str(out.get("type", "")).lower().strip()
 
+        if kind == "m1":
+            return {"type": "m1", "seconds": max(0.025, min(0.12, float(out.get("seconds", 0.055) or 0.055)))}
+
+        if kind == "block":
+            return {"type": "block", "seconds": max(0.08, min(1.0, float(out.get("seconds", 0.35) or 0.35)))}
+
+        if kind == "double_tap_w":
+            return {"type": "double_tap_w"}
+
         if kind == "hold":
             key = str(out.get("key", "w")).lower()
             if key not in {"w", "a", "d", "s"}:
@@ -105,7 +114,7 @@ class GameBrain:
 
         if kind == "press":
             key = str(out.get("key", "")).lower()
-            allowed = {"space", "e", "q", "r", "f", "1", "2", "3", "esc"}
+            allowed = {"space", "e", "q", "r", "f", "g", "1", "2", "3", "4", "esc"}
             if key not in allowed:
                 return {"type": "wait", "seconds": 0.08}
             return {"type": "press", "key": key}
@@ -170,6 +179,35 @@ class GameBrain:
     def _novelty_candidates(self, cycle: int):
         idx = int(cycle) + int(self.exploration_cursor)
         self.exploration_cursor += 1
+        if self.profile == "jjs":
+            pool = [
+                {"type": "hold", "key": "w", "seconds": 0.32},
+                {"type": "hold", "key": "a", "seconds": 0.25},
+                {"type": "hold", "key": "d", "seconds": 0.25},
+                {"type": "m1", "seconds": 0.055},
+                {"type": "press", "key": "q"},
+                {"type": "block", "seconds": 0.30},
+                {"type": "press", "key": "1"},
+                {"type": "press", "key": "2"},
+                {"type": "press", "key": "3"},
+                {"type": "press", "key": "4"},
+                {"type": "press", "key": "r"},
+                {"type": "press", "key": "g"},
+                {"type": "double_tap_w"},
+                {"type": "camera_turn", "dx": -110, "dy": 0, "seconds": 0.07},
+                {"type": "camera_turn", "dx": 110, "dy": 0, "seconds": 0.07},
+                {"type": "camera_turn", "dx": 0, "dy": -80, "seconds": 0.06},
+                {"type": "camera_turn", "dx": 0, "dy": 80, "seconds": 0.06},
+                {"type": "press", "key": "space"},
+                {"type": "wait", "seconds": 0.10},
+            ]
+            for offset in range(len(pool)):
+                action = pool[(idx + offset) % len(pool)]
+                key = self.learner.action_key(action)
+                if not self._is_bad_repeat(key, 0.0):
+                    return self.validate_action(action)
+            return self.validate_action(pool[idx % len(pool)])
+
         if self.profile == "roblox":
             pool = [
                 {"type": "hold", "key": "w", "seconds": 0.32},
