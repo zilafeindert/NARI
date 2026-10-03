@@ -574,9 +574,20 @@ class NariApp:
         goal=self.game_goal.get().strip() or "Explora el juego, aprende los controles y actúa de forma continua."
         min_interval=max(0.35,1.0/max(0.5,float(self.settings.get("game_inference_fps",2.0))))
         next_allowed=0.0
+        previous_note=""
 
         while self.game_running:
-            self.computer.track_foreground()
+            # Comprobación adicional de F8 dentro del hilo del juego.
+            if __import__("sys").platform == "win32":
+                try:
+                    import ctypes
+                    if ctypes.windll.user32.GetAsyncKeyState(0x77) & 0x8000:
+                        self._emergency_stop_core()
+                        self.root.after(0, lambda: self.game_status.set("DETENIDO • F8"))
+                        break
+                except Exception:
+                    pass
+
             now=time.perf_counter()
             frame=self.screen.latest()
             if frame is None:
@@ -588,74 +599,125 @@ class NariApp:
                     imgs,latest=self.screen.image_bytes(1)
                     if not imgs or latest is None:
                         continue
-                    self.game_cycle += 1
 
+                    self.game_cycle += 1
+                    state=self.agent.game_state_key(frame,profile) if self.learning_enabled else ""
+                    visual_reward=0.0
+
+                    if self.learning_enabled and self.last_learning_frame is not None and self.last_learning_action is not None:
+                        visual_reward=self.agent.game_learner.frame_reward(self.last_learning_frame,frame)
+
+                    previous_action_label=self.last_learning_action_label
                     try:
-                        result=self.agent.vision(goal,imgs,profile=profile)
+                        result=self.agent.vision(
+                            goal,
+                            imgs,
+                            profile=profile,
+                            previous_action=previous_action_label,
+                            state_key=state,
+                        )
                     except Exception as e:
                         result={"actions":[],"reply":"","error":str(e)}
 
-                    # Si el modelo visual tarda/falla, mantener un reflejo básico
-                    # para que el juego no se quede completamente inmóvil.
-                    actions=result.get("actions") or []
-                    if not result.get("error") and not actions and profile in {"roblox","generic"}:
-                        phase=self.game_cycle % 8
-                        if phase in {0,1,2,3,4}: 
-                            actions=[{"type":"hold","key":"w","seconds":0.22}]
-                        elif phase == 5:
-                            actions=[{"type":"hold","key":"a","seconds":0.16}]
-                        elif phase == 6:
-                            actions=[{"type":"hold","key":"d","seconds":0.16}]
-                        else:
-                            actions=[{"type":"press","key":"space"}]
-                        result["actions"]=actions
-                        result["reply"]="Explorando el entorno…"
+                    # La visión puede evaluar la acción anterior. Se mezcla con la
+                    # recompensa visual para formar una señal menos frágil.
+                    if self.learning_enabled and self.last_learning_action is not None:
+                        model_reward=result.get("reward",None)
+                        reward=visual_reward
+                        if model_reward is not None:
+                            try:
+                                reward=(0.70*visual_reward)+(0.30*max(-1.0,min(1.0,float(model_reward))))
+                            except Exception:
+                                pass
+                        self.agent.game_record(
+                            profile,
+                            self.last_learning_state,
+                            self.last_learning_action,
+                            reward,
+                            "vision" if not result.get("error") else "visual_failure",
+                            str(result.get("observation",""))[:300],
+                        )
 
                     if result.get("error"):
                         self._status("⚠ visión: "+str(result["error"])[:110])
                         action_summary=""
-                    elif not self.game_running:
-                        action_summary=""
                     else:
+                        actions=result.get("actions") or []
+                        executable=[
+                            x for x in actions
+                            if isinstance(x,dict) and str(x.get("type","")).lower() not in {
+                                "remember","social_update","self_update","drive_update","private_note","done"
+                            }
+                        ]
+
+                        # Si la IA visual no propone una acción ejecutable,
+                        # el aprendiz toma el control con exploración UCB/epsilon-greedy
+                        # usando experiencias persistentes.
+                        if self.learning_enabled and not executable and self.game_running:
+                            learned,state=self.agent.game_fallback_action(profile,frame,self.game_cycle)
+                            result["actions"]=[learned]
+                            result["reply"]="Estoy probando una estrategia que aún no conozco."
+                            executable=[learned]
+                            previous_note="fallback aprendido"
+
+                        # Tras una recompensa muy negativa, fuerza una corrección
+                        # ocasional en lugar de repetir ciegamente la misma conducta.
+                        if (
+                            self.learning_enabled
+                            and executable
+                            and self.last_learning_action is not None
+                            and visual_reward < -0.20
+                            and self.game_cycle % 3 == 0
+                            and self.game_running
+                        ):
+                            learned,_=self.agent.game_fallback_action(profile,frame,self.game_cycle + 11)
+                            result["actions"]=[learned]
+                            result["reply"]="Ese intento no funcionó; estoy cambiando de estrategia."
+                            executable=[learned]
+                            previous_note="corrección por recompensa negativa"
+
+                        if not self.game_running:
+                            break
+
                         action_summary=self.agent.execute_actions(result,True)
 
-                    if self.game_running:
-                        raw_actions=result.get("actions") or []
-                        executable=[x for x in raw_actions if isinstance(x,dict) and str(x.get("type","")).lower() not in {
-                            "remember","social_update","self_update","drive_update","private_note","done"
-                        }]
-                        self.computer.keep_target_focused()
+                        if self.game_running and executable:
+                            self.computer.keep_target_focused()
+                            chosen=executable[0]
+                            self.last_learning_state=state
+                            self.last_learning_action=chosen
+                            self.last_learning_action_label=self.agent.game_learner.action_key(chosen)
+                            self.last_learning_frame=frame.copy()
+                            if self.learning_enabled:
+                                stats=self.agent.game_stats(profile)
+                                self.root.after(
+                                    0,
+                                    lambda s=stats,a=self.last_learning_action_label:
+                                        self.game_learning_status.set(
+                                            f"Aprendizaje • {s['experiences']} exp • media {s['avg_reward']:+.2f} • probando {a}"
+                                        )
+                                )
 
-                        # Movimiento base: si la visión no dio acciones ejecutables,
-                        # NARI sigue explorando con teclado y ratón.
-                        if not executable:
-                            self.computer.act({"type":"hold","key":"w","seconds":0.28})
-                            drift=((self.game_cycle%7)-3)*22
-                            self.computer.act({"type":"mouse_move_rel","dx":drift,"dy":0})
-
-                        # Si el modelo dio teclado pero no controló el ratón,
-                        # hacemos una pequeña exploración del cursor.
-                        elif not any(str(x.get("type","")).lower() in {"click","double_click","move","drag","mouse_move_rel"} for x in executable):
-                            drift=((self.game_cycle%9)-4)*14
-                            self.computer.act({"type":"mouse_move_rel","dx":drift,"dy":0})
-
-                        if profile in {"roblox","generic"} and self.game_cycle % 10 == 0:
-                            self.computer.act({"type":"press","key":"space"})
                         reply=str(result.get("reply","")).strip()
                         if reply and self.game_cycle % 2 == 0:
                             self._append_chat("NARI","🎮 "+reply,"nari")
                         if action_summary:
                             self.memory.add_episode(
-                                "game", f"{profile} • ciclo {self.game_cycle}",
-                                action_summary, reply or "acción ejecutada"
+                                "game",
+                                f"{profile} • ciclo {self.game_cycle}",
+                                action_summary,
+                                (reply or "acción ejecutada") + ((" • " + previous_note) if previous_note else ""),
                             )
 
                     next_allowed=time.perf_counter()+min_interval
             else:
                 time.sleep(.015)
 
-            self.root.after(0, lambda p=profile,c=self.game_cycle,t=self.game_target_title:
-                self.game_status.set(f"ACTIVO • {p} • ciclo {c} • foco: {t}"))
+            self.root.after(
+                0,
+                lambda p=profile,c=self.game_cycle,t=self.game_target_title:
+                    self.game_status.set(f"ACTIVO • {p} • ciclo {c} • foco: {t}")
+            )
 
     def _refresh_ui(self):
         self.computer.track_foreground()
