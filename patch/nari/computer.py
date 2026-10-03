@@ -22,6 +22,8 @@ if IS_WINDOWS:
     KEYEVENTF_KEYUP = 0x0002
     KEYEVENTF_SCANCODE = 0x0008
     MOUSEEVENTF_MOVE = 0x0001
+    # Evita que Windows fusione varios deltas; ayuda con cámaras que leen movimiento relativo.
+    MOUSEEVENTF_MOVE_NOCOALESCE = 0x2000
     MOUSEEVENTF_LEFTDOWN = 0x0002
     MOUSEEVENTF_LEFTUP = 0x0004
     MOUSEEVENTF_RIGHTDOWN = 0x0008
@@ -280,26 +282,41 @@ class Computer:
     def _mouse_move_rel(self, dx, dy):
         dx, dy = int(dx), int(dy)
         if IS_WINDOWS:
-            # Primero movimiento RELATIVO Win32. SetCursorPos queda como último
-            # recurso porque muchos juegos no convierten ese salto en MouseDelta.
+            # Ruta principal: SendInput con movimiento relativo y NOCOALESCE.
+            # Roblox suele consumir el delta del mouse a traves de su capa de input;
+            # usar la API moderna evita que Windows fusione los pequeños pasos del giro.
+            try:
+                inp = INPUT(
+                    type=0,
+                    mi=MOUSEINPUT(
+                        dx=dx,
+                        dy=dy,
+                        mouseData=0,
+                        dwFlags=MOUSEEVENTF_MOVE | MOUSEEVENTF_MOVE_NOCOALESCE,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                )
+                sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+                if sent == 1:
+                    return
+            except Exception:
+                pass
+
+            # Compatibilidad con aplicaciones que consumen la ruta legacy.
             try:
                 user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
                 return
             except Exception:
                 pass
-            try:
-                inp=INPUT(
-                    type=0,
-                    mi=MOUSEINPUT(
-                        dx=dx, dy=dy, mouseData=0,
-                        dwFlags=MOUSEEVENTF_MOVE, time=0, dwExtraInfo=0
-                    )
-                )
-                sent=user32.SendInput(1,ctypes.byref(inp),ctypes.sizeof(INPUT))
-                if sent==1:
+
+            if pyautogui:
+                try:
+                    pyautogui.moveRel(dx, dy, duration=0)
                     return
-            except Exception:
-                pass
+                except Exception:
+                    pass
+
             try:
                 class POINT(ctypes.Structure):
                     _fields_=[("x",wintypes.LONG),("y",wintypes.LONG)]
@@ -353,14 +370,14 @@ class Computer:
     def camera_drag(self, dx, dy=0, seconds=0.08):
         self.keep_target_focused()
         self._center_cursor_in_target()
-        total=max(0.05, min(0.20, float(seconds)))
-        steps=max(6, min(16, int(round(total*90))))
+        total=max(0.06, min(0.22, float(seconds)))
+        steps=max(8, min(22, int(round(total*110))))
         sx=float(dx)/steps
         sy=float(dy)/steps
         self._mouse_button("right", True)
         try:
             # Darle tiempo a Roblox para registrar RMB antes del primer delta.
-            time.sleep(0.025)
+            time.sleep(0.045)
             for _ in range(steps):
                 if self.stop_event:
                     break
@@ -371,7 +388,7 @@ class Computer:
                 if my==0 and dy:
                     my=1 if dy>0 else -1
                 self._mouse_move_rel(mx,my)
-                time.sleep(max(0.003,total/steps*0.55))
+                time.sleep(max(0.004,total/steps*0.70))
         finally:
             self._mouse_button("right", False)
             # Un pulso adicional sin RMB cubre experiencias que usan
