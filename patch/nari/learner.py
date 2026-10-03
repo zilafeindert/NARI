@@ -281,12 +281,12 @@ class GameLearner:
         repeat_count: int = 0,
         stagnation: int = 0,
     ) -> float:
-        """Recompensa especifica de combate para Jujutsu Shenanigans.
+        """Recompensa fuerte y contextual para combate JJS.
 
-        La señal visual queda como apoyo. Los eventos de combate estimados por
-        vision tienen prioridad para que atacar, bloquear y acercarse aprendan
-        como conductas utiles, mientras que fallar, recibir dano o morir se
-        castiga.
+        La señal no premia simplemente que cambie la pantalla. Premia conseguir
+        ventaja verificable y castiga de forma fuerte las decisiones que empeoran
+        la situacion. Asi el bandit aprende diferencias reales entre acercarse,
+        confirmar un golpe, defender, fallar y recibir dano.
         """
         result = result or {}
         raw = max(-0.45, min(0.55, float(raw_visual_reward or 0.0)))
@@ -298,55 +298,116 @@ class GameLearner:
             except Exception:
                 return float(default)
 
-        hit = bool(result.get("hit_confirmed", False))
-        block = bool(result.get("block_success", False))
-        ko = bool(result.get("ko_confirmed", False) or result.get("death_or_ko", False))
-        whiff = bool(result.get("ability_whiff", False))
-        cooldown = bool(result.get("cooldown_active", False))
+        def flag(name):
+            return bool(result.get(name, False))
+
+        hit = flag("hit_confirmed")
+        block = flag("block_success")
+        ko = flag("ko_confirmed") or flag("death_or_ko")
+        whiff = flag("ability_whiff")
+        cooldown = flag("cooldown_active")
+        target_visible = flag("target_visible")
+        target_stunned = flag("target_stunned")
+        target_blocking = flag("target_blocking")
+        opponent_attacking = flag("opponent_attacking")
+        player_stunned = flag("player_stunned")
+        player_ragdolled = flag("player_ragdolled")
+        ability_confirmed = flag("ability_confirmed")
+
         enemy_hp_delta = num("enemy_health_delta")
         player_hp_delta = num("player_health_delta")
         distance_delta = num("target_distance_delta")
         align_delta = num("aim_alignment_delta")
+        target_distance = num("target_distance", 0.75)
 
-        score = 0.06 * raw
+        score = 0.03 * raw
 
-        if enemy_hp_delta < -0.02:
-            score += min(0.85, abs(enemy_hp_delta) * 0.85)
+        # Mantener al rival visible es valioso, pero nunca tanto como una accion de combate.
+        if target_visible:
+            score += 0.035
+
+        # Apuntar y entrar en rango forman la preparacion del intercambio.
+        if align_delta > 0.025:
+            score += min(0.28, align_delta * 0.34)
+        elif align_delta < -0.08:
+            score -= min(0.22, abs(align_delta) * 0.25)
+
+        if distance_delta < -0.025:
+            score += min(0.24, abs(distance_delta) * 0.30)
+        elif distance_delta > 0.12:
+            score -= min(0.18, distance_delta * 0.24)
+
+        if 0.0 <= target_distance <= 0.52 and key.startswith("hold_"):
+            score += 0.06
+
+        # El dano confirmado es la señal ofensiva mas fuerte.
+        if enemy_hp_delta < -0.01:
+            score += min(0.95, abs(enemy_hp_delta) * 1.15)
         if hit:
-            score += 0.34
-        if block:
+            score += 0.48
+        if ability_confirmed:
             score += 0.24
-        if distance_delta < -0.05:
-            score += min(0.10, abs(distance_delta) * 0.12)
-        if align_delta > 0.05:
-            score += min(0.12, align_delta * 0.14)
+        if target_stunned:
+            score += 0.18
 
-        if player_hp_delta < -0.02:
-            score -= min(0.80, abs(player_hp_delta) * 0.90)
+        # Defensa y supervivencia.
+        if block:
+            score += 0.38
+        if opponent_attacking and key == "block_f":
+            score += 0.18
+        if player_stunned or player_ragdolled:
+            if key == "dash_q":
+                score += 0.22
+
+        # Penalizacion fuerte por perder vida.
+        if player_hp_delta < -0.01:
+            score -= min(0.95, abs(player_hp_delta) * 1.25)
+
+        # Ganar el intercambio importa mucho mas que cualquier microseñal visual.
         if ko:
-            score += 1.0 if enemy_hp_delta <= 0 else 0.65
+            score += 1.25
+        if flag("death_or_ko") and not ko:
+            score -= 1.25
+
+        # Golpear a alguien que esta bloqueando con M1 es mala informacion:
+        # no queremos que el aprendizaje descubra un "autopilot" infinito.
+        if key == "m1" and target_blocking and not hit:
+            score -= 0.48
 
         if whiff:
-            score -= 0.20
+            score -= 0.52
         if cooldown and key in {
             "m1", "press_1", "press_2", "press_3", "press_4",
             "press_r", "press_g", "dash_q", "block_f"
         }:
-            score -= 0.14
+            score -= 0.32
 
-        if key in {"look_left", "look_right", "camera_turn", "camera_drag"}:
-            score *= 0.35
-            if align_delta <= 0.05:
-                score -= 0.03
+        # La camara solo recibe una señal pequeña y exclusivamente si mejoro el aim.
+        if key in {"look_left", "look_right", "look_up", "look_down", "camera_turn", "camera_drag"}:
+            if align_delta > 0.02:
+                score = 0.05 * raw + min(0.22, align_delta * 0.30)
+            else:
+                score = -0.08
 
         if key == "wait":
-            score -= 0.06
+            score -= 0.10
 
+        # Penaliza bucles. Una repeticion solo se salva cuando hay evidencia de progreso.
         if repeat_count >= 2:
-            score -= min(0.26, 0.075 * repeat_count)
+            if hit or enemy_hp_delta < -0.01 or block:
+                score -= min(0.10, 0.025 * repeat_count)
+            else:
+                score -= min(0.38, 0.11 * repeat_count)
 
-        if stagnation >= 3:
-            score -= min(0.18, 0.035 * (stagnation - 2))
+        if stagnation >= 2:
+            score -= min(0.32, 0.065 * (stagnation - 1))
+
+        # Acciones manifiestamente equivocadas reciben una senal negativa visible.
+        if key in {"m1", "press_1", "press_2", "press_3", "press_4", "press_r"}:
+            if not target_visible:
+                score -= 0.24
+        if key == "dash_q" and target_visible and distance_delta > 0.18:
+            score -= 0.10
 
         return max(-1.0, min(1.0, score))
 
@@ -542,7 +603,10 @@ class GameLearner:
         if row:
             trials = int(row["trials"])
             old = float(row["value"])
-            alpha = 0.28 if trials < 12 else 0.16
+            if profile == "jjs":
+                alpha = 0.40 if trials < 12 else 0.22
+            else:
+                alpha = 0.28 if trials < 12 else 0.16
             value = old + alpha * (reward - old)
             self.db.execute(
                 "UPDATE game_policy SET trials=?,value=?,updated=? WHERE profile=? AND state=? AND action=?",
