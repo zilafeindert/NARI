@@ -1,0 +1,5 @@
+NARI 5.5.0
+- Nuevo perfil especifico para Jujutsu Shenanigans.
+- Aprende y puede usar M1, habilidades 1-4, Q dash, F bloqueo, R especial, G awakening, W+W sprint y Shift Lock.
+- El aprendizaje de combate usa las mismas recompensas estrictas, evitando considerar los giros de camara como progreso.
+- El perfil de juego sigue usando una sola accion por ciclo y memoria de resultados.
