@@ -1,0 +1,1 @@
+Corrección de un SyntaxError en el prompt de visión de NARI.\nActualiza automáticamente el runtime sin tocar memoria, modelos, voces ni el entorno virtual.
