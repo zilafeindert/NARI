@@ -230,11 +230,14 @@ class VoiceListener:
                     try:
                         stream=sd.RawInputStream(
                             samplerate=rate,
-                            blocksize=max(800,int(rate/10)),
+                            # Bloques cortos = menor latencia al detectar "NARI",
+                            # especialmente mientras hay audio de una llamada/juego.
+                            blocksize=max(320,int(rate/40)),
                             dtype="int16",
                             channels=1,
                             callback=self._cb,
                             device=device,
+                            latency="low",
                         )
                         # Arranque explícito: evita depender del valor por defecto de
                         # sounddevice y garantiza que el callback empiece a recibir audio.
