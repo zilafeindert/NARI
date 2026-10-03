@@ -178,6 +178,8 @@ class ScreenVideo:
                 "height":int(best[5]),
                 "fill":float(best[6]),
             }
+        except Exception:
+            return None
 
     def image_bytes(self,count=1,max_width=768):
         with self.lock:
