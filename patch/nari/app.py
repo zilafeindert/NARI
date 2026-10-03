@@ -640,15 +640,15 @@ class NariApp:
             time.sleep(0.25)
 
     def _game_loop(self, profile: str):
-        goal = self.game_goal.get().strip() or (
-            "Explora el juego, aprende sus controles y completa objetivos visibles."
-        )
+        goal = self.game_goal.get().strip() or "Explora el juego, aprende los controles y completa objetivos visibles."
         previous_action = None
         previous_state = ""
         previous_frame = None
         previous_confidence = 0.0
+        previous_observation = ""
+        previous_note = ""
+        previous_goal_state = ""
         last_decision_ui = 0.0
-        failure_streak = 0
 
         while self.game_running:
             if __import__("sys").platform == "win32":
@@ -666,74 +666,41 @@ class NariApp:
                 time.sleep(0.03)
                 continue
 
-            reward = 0.0
             state = self.agent.game_state_key(frame, profile) if self.learning_enabled else ""
 
+            # Evalua la accion anterior antes de pedir una nueva.
+            reward = 0.0
             if previous_action is not None and previous_frame is not None:
                 reward = self.agent.game_learner.frame_reward(previous_frame, frame)
                 if self.learning_enabled:
                     try:
-                        self.agent.game_record(
-                            profile, previous_state, previous_action, reward,
-                            "closed_loop", "resultado visual de la accion anterior"
-                        )
+                        self.agent.game_record(profile, previous_state, previous_action, reward, "closed_loop", "resultado visual")
                     except Exception:
                         pass
+                try:
+                    self.agent.game_feedback(previous_observation, previous_action, reward, previous_confidence, previous_note, previous_goal_state)
+                except Exception:
+                    pass
 
-            imgs, latest = self.screen.image_bytes(
-                1,
-                max_width=int(self.settings.get("game_analysis_width", 768)),
-            )
+            temporal = max(1, min(4, int(self.settings.get("temporal_frames", 3))))
+            imgs, latest = self.screen.image_bytes(temporal, max_width=int(self.settings.get("game_analysis_width", 768)))
             if not imgs or latest is None:
                 time.sleep(0.03)
                 continue
 
-            previous_label = (
-                self.agent.game_learner.action_key(previous_action)
-                if isinstance(previous_action, dict)
-                else "ninguna"
-            )
-
+            previous_label = self.agent.game_learner.action_key(previous_action) if isinstance(previous_action, dict) else "ninguna"
             try:
-                result = self.agent.vision(
-                    goal,
-                    imgs,
-                    profile=profile,
-                    previous_action=previous_label,
-                    state_key=state,
-                )
+                result = self.agent.vision(goal, imgs, profile=profile, previous_action=previous_label, state_key=state)
             except Exception as exc:
-                result = {
-                    "actions": [],
-                    "reply": "",
-                    "error": str(exc),
-                    "confidence": 0.0,
-                    "observation": "",
-                    "decision_note": "fallo de percepcion",
-                }
+                result = {"actions": [], "reply": "", "error": str(exc), "confidence": 0.0, "observation": ""}
 
-            executable = [
+            candidates = [
                 x for x in (result.get("actions") or [])
                 if isinstance(x, dict)
-                and str(x.get("type","")).lower()
-                not in {
-                    "remember","social_update","self_update",
-                    "drive_update","private_note","done",
-                }
-            ]
-
-            action = executable[0] if executable else None
+                and str(x.get("type","")).lower() not in {"remember","social_update","self_update","drive_update","private_note","done"}
+            ][:2]
             confidence = float(result.get("confidence", 0.0) or 0.0)
-
-            if action is None:
-                failure_streak += 1
-                action = self.agent.game_fallback_action(profile, frame, self.game_cycle)[0]
-                source = "recuperacion"
-            else:
-                failure_streak = 0
-                source = "vision+deliberacion"
-
-            action = self.agent.game_validate_action(action)
+            action, source = self.agent.game_choose_action(candidates, confidence, self.game_cycle, frame)
 
             try:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
@@ -741,67 +708,45 @@ class NariApp:
                 exec_result = "ERROR: " + str(exc)
 
             decision = self.agent.game_learner.action_key(action)
+            decision_note = str(result.get("decision_note", "") or "")
+            observation = str(result.get("observation", "") or "")
+            goal_state = str(result.get("goal_state", "") or "")
 
-            self.agent.decision_record(
-                profile,
-                goal,
-                result,
-                decision,
-            )
-
-            self.agent.game_feedback(
-                str(result.get("observation","")),
-                action,
-                reward,
-                confidence,
-                str(result.get("decision_note",""))[:180],
-            )
+            self.agent.decision_record(profile, goal, result, decision)
 
             previous_action = action
             previous_state = state
             previous_frame = frame.copy()
             previous_confidence = confidence
+            previous_observation = observation
+            previous_note = decision_note or source
+            previous_goal_state = goal_state
 
-            stats = self.agent.game_stats(profile) if self.learning_enabled else {
-                "experiences":0,"avg_reward":0.0
-            }
-            plan = str(result.get("plan", "") or result.get("decision_note","")).strip()
-            observation = str(result.get("observation","")).strip()
-
+            stats = self.agent.game_stats(profile) if self.learning_enabled else {"experiences":0,"avg_reward":0.0}
             status_text = (
-                f"ACTIVO • {profile} • ciclo {self.game_cycle} • "
-                f"accion: {decision} • confianza {confidence:.2f} • "
-                f"Δvisual {reward:+.2f} • {source}"
+                f"ACTIVO • {profile} • ciclo {self.game_cycle} • accion: {decision} • "
+                f"confianza {confidence:.2f} • Δvisual {reward:+.2f} • {source}"
             )
             self.root.after(0, lambda s=status_text: self.game_status.set(s))
 
             if self.learning_enabled:
                 learn_text = (
-                    f"Aprendizaje • {stats['experiences']} exp • "
-                    f"media {stats['avg_reward']:+.2f} • "
-                    f"atasco {getattr(self.agent.game_brain,'stuck_count',0)}"
+                    f"Aprendizaje • {stats['experiences']} exp • media {stats['avg_reward']:+.2f} • "
+                    f"repeticion {getattr(self.agent.game_brain,'stuck_count',0)}"
                 )
                 self.root.after(0, lambda s=learn_text: self.game_learning_status.set(s))
 
             now=time.monotonic()
-            if (plan or observation) and now-last_decision_ui >= 0.70:
-                visible = f"🎮 {decision}"
-                if plan:
-                    visible += f" • {plan[:220]}"
-                elif observation:
-                    visible += f" • {observation[:220]}"
-                self._append_chat("NARI", visible, "nari")
+            if (observation or decision_note or goal_state) and now-last_decision_ui >= 0.65:
+                visible=f"🎮 {decision} • {decision_note or observation or goal_state}"
+                self._append_chat("NARI", visible[:420], "nari")
                 last_decision_ui=now
 
             if result.get("error"):
                 self._status("⚠️ visión: " + str(result["error"])[:100])
 
             self.game_cycle += 1
-
-            # El siguiente fotograma decide de nuevo. No se mantienen colas
-            # de acciones porque se vuelven obsoletas y provocan imprecision.
-            time.sleep(0.025 if failure_streak == 0 else 0.10)
-
+            time.sleep(0.025)
     def _refresh_ui(self):
         self.computer.track_foreground()
         if self.settings.get("show_live_preview", True):
