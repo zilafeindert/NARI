@@ -248,13 +248,13 @@ class GameLearner:
         if key.startswith("press_") and len(key) == 7:
             return {"type": "press", "key": key[-1]}
         if key == "look_left":
-            return {"type": "camera_turn", "dx": -420, "dy": 0, "seconds": 0.10}
+            return {"type": "camera_turn", "dx": -145, "dy": 0, "seconds": 0.08}
         if key == "look_right":
-            return {"type": "camera_turn", "dx": 420, "dy": 0, "seconds": 0.10}
+            return {"type": "camera_turn", "dx": 145, "dy": 0, "seconds": 0.08}
         if key == "look_up":
-            return {"type": "camera_turn", "dx": 0, "dy": -260, "seconds": 0.09}
+            return {"type": "camera_turn", "dx": 0, "dy": -95, "seconds": 0.07}
         if key == "look_down":
-            return {"type": "camera_turn", "dx": 0, "dy": 260, "seconds": 0.09}
+            return {"type": "camera_turn", "dx": 0, "dy": 95, "seconds": 0.07}
         if key == "click":
             return {"type": "click", "x": 500, "y": 500, "normalized": True}
         if key == "click_center":
