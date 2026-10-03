@@ -1,0 +1,6 @@
+NARI 5.5.4
+- Corrige definitivamente el bucle de actualizacion: cada ZIP incluye NARI_BUILD_VERSION.txt y el actualizador toma de ahi la version instalada.
+- Corrige otra causa de repeticion de ofertas despues de 5.5.3.
+- Los errores tecnicos de percepcion visual ya no se escriben en el chat; solo aparecen en el estado de Juego.
+- La percepcion visual tiene un reintento automatico con un solo fotograma si falla el analisis normal.
+- Mantiene las mejoras de camara y combate de 5.5.3.
