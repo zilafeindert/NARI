@@ -1,0 +1,9 @@
+NARI 5.5.8
+
+- Reworked Jujutsu Shenanigans Dummy targeting to require stable consecutive detections.
+- Added smoothing to the detected target center and small bounded camera corrections.
+- Added adaptive camera direction correction when a turn moves the target away from center.
+- Removed aggressive automatic camera sweeps when the Dummy is temporarily lost.
+- Limited VLM-proposed JJS camera actions to small movements with a rate limit.
+- Roblox camera input no longer recenters the cursor on every micro-turn and no longer sends an extra mouse pulse after releasing RMB.
+- JJS approach/attack remains blocked until the Dummy is centered and visible.
