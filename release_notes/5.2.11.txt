@@ -1,0 +1,6 @@
+NARI 5.2.11
+
+Corrección de reconocimiento de voz.
+- Vosk ahora conserva y combina los segmentos finalizados durante una frase en vez de depender sólo del último resultado.
+- Se muestra en el estado lo que NARI realmente entendió antes de enviarlo al agente.
+- Se mantiene el soporte de descarga automática del modelo español y selección/fallback de micrófonos.
