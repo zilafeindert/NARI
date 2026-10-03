@@ -1,8 +1,8 @@
 {
-  "version": "5.3.2",
-  "tag": "v5.3.2",
+  "version": "5.4.0",
+  "tag": "v5.4.0",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "syntax-fix-game-brain-1"
+  "release_build": "strict-goal-reward-1"
 }
