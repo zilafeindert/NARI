@@ -1,8 +1,8 @@
 {
-  "version": "5.5.9",
-  "tag": "v5.5.9",
+  "version": "5.5.10",
+  "tag": "v5.5.10",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-target-evidence-lock-11"
+  "release_build": "jjs-target-evidence-lock-12"
 }
