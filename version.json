@@ -1,8 +1,8 @@
 {
-  "version": "5.4.0",
-  "tag": "v5.4.0",
+  "version": "5.5.0",
+  "tag": "v5.5.0",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "strict-goal-reward-1"
+  "release_build": "jjs-training-profile-1"
 }
