@@ -810,13 +810,17 @@ class NariApp:
                     item=dict(candidate)
                     kind=str(item.get("type","")).lower()
                     if kind in {"camera_turn","camera_drag","camera_key_turn"}:
+                        # Los giros libres del VLM causaban oscilaciones. En JJS solo
+                        # permitimos una accion de camara si el propio VLM ve al Dummy.
+                        if not vlm_dummy:
+                            continue
                         try:
                             cdx=int(float(item.get("dx",0) or 0))
                             cdy=int(float(item.get("dy",0) or 0))
                         except Exception:
                             cdx,cdy=0,0
-                        item["dx"]=max(-55,min(55,cdx))
-                        item["dy"]=max(-40,min(40,cdy))
+                        item["dx"]=max(-42,min(42,cdx))
+                        item["dy"]=max(-30,min(30,cdy))
                         item["seconds"]=0.06
                         if abs(item["dx"])<5 and abs(item["dy"])<5:
                             continue
@@ -970,6 +974,54 @@ class NariApp:
                         "seconds":0.055,
                     }
                     forced_source="target-search"
+
+            # Si el detector local no ve el marcador, el VLM solo puede tomar
+            # control de camara cuando afirma explicitamente que ve al Dummy con
+            # confianza suficiente. Nunca usamos un giro de exploracion aleatorio del VLM.
+            vlm_dummy=False
+            if profile == "jjs" and marker is None:
+                target_name_vlm=str(result.get("target_name","") or "").lower()
+                vlm_dummy=(
+                    bool(result.get("target_visible",False))
+                    and (
+                        bool(result.get("target_is_dummy",False))
+                        or "dummy" in target_name_vlm
+                        or "dummie" in target_name_vlm
+                    )
+                    and float(result.get("confidence",0.0) or 0.0)>=0.72
+                )
+                if vlm_dummy:
+                    try:
+                        vx=float(result.get("target_center_x",0.5) or 0.5)
+                    except Exception:
+                        vx=0.5
+                    try:
+                        vy=float(result.get("target_center_y",0.5) or 0.5)
+                    except Exception:
+                        vy=0.5
+                    vx=max(0.0,min(1.0,vx))
+                    vy=max(0.0,min(1.0,vy))
+                    if abs(vx-0.5)>0.08 or abs(vy-0.09)>0.08:
+                        now_vlm=time.monotonic()
+                        if now_vlm-self.jjs_last_camera_action_ts>=0.22:
+                            vdx=int((vx-0.5)*220*self.jjs_camera_x_sign)
+                            vdy=int((vy-0.5)*170*self.jjs_camera_y_sign)
+                            vdx=max(-38,min(38,vdx))
+                            vdy=max(-28,min(28,vdy))
+                            if abs(vdx)<5 and abs(vx-0.5)>0.08:
+                                vdx=5 if vx>0.5 else -5
+                            if abs(vdy)<5 and abs(vy-0.5)>0.08:
+                                vdy=5 if vy>0.5 else -5
+                            if vdx or vdy:
+                                forced_action={
+                                    "type":"camera_turn",
+                                    "dx":vdx,
+                                    "dy":vdy,
+                                    "seconds":0.06,
+                                }
+                                forced_source="vlm-target-lock"
+                                self.jjs_last_camera_command=(vdx,vx-0.5,vy-0.5,now_vlm)
+                                self.jjs_last_camera_action_ts=now_vlm
 
             confidence=float(result.get("confidence",0.0) or 0.0)
             if forced_action is not None:
