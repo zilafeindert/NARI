@@ -1,0 +1,7 @@
+NARI 5.2.5
+
+Hotfix de chat y respuesta.
+- Corrige el error de Tkinter causado por una medida en formato de tupla.
+- El agente filtra acciones malformadas devueltas por Ollama para que una lista de strings no rompa el chat.
+- Mantiene /no_think y la inferencia rapida.
+- Mantiene el chat visual estilo Discord y las mejoras de juego de 5.2.4.
