@@ -35,7 +35,7 @@ class Computer:
         return items
 
     def find_game(self,profile):
-        keys={"roblox":["Roblox"],"limbus":["Limbus","LIMBUS"],"generic":[]}.get(profile,[])
+        keys={"roblox":["Roblox"],"limbus":["Limbus","LIMBUS"],"generic":["Roblox","Limbus","LIMBUS"]}.get(profile,[])
         for hwnd,title in self._windows():
             if any(k.lower() in title.lower() for k in keys): return hwnd,title
         return None,""
