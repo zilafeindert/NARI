@@ -1001,7 +1001,7 @@ class NariApp:
                         vy=0.5
                     vx=max(0.0,min(1.0,vx))
                     vy=max(0.0,min(1.0,vy))
-                    if abs(vx-0.5)>0.08 or abs(vy-0.09)>0.08:
+                    if abs(vx-0.5)>0.08 or abs(vy-0.5)>0.08:
                         now_vlm=time.monotonic()
                         if now_vlm-self.jjs_last_camera_action_ts>=0.22:
                             vdx=int((vx-0.5)*220*self.jjs_camera_x_sign)
