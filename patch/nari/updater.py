@@ -8,9 +8,24 @@ import requests
 from .config import ROOT, SETTINGS_FILE
 
 APP_NAME = "NARI"
-APP_VERSION = "5.5.2"
+APP_VERSION = "5.5.3"
 OFFICIAL_REPO = "zilafeindert/NARI"
 GITHUB_TIMEOUT = 15
+
+def _local_version() -> str:
+    try:
+        marker = ROOT / "NARI_BUILD_VERSION.txt"
+        if marker.exists():
+            value = marker.read_text(encoding="utf-8").strip()
+            if value:
+                return value
+    except Exception:
+        pass
+    return APP_VERSION
+
+# The launcher uses this dynamic build version so an installed release does
+# not repeatedly offer the same update after the app was upgraded.
+APP_VERSION = _local_version()
 DOWNLOAD_TIMEOUT = 120
 PRESERVE_NAMES = {"data","voices","models",".venv",".env"}
 
