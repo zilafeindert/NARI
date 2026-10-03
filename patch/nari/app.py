@@ -88,6 +88,10 @@ class NariApp:
         self.computer.set_host_window(self.root.winfo_id())
         self.game_infer_lock = threading.Lock()
         self.game_target_title = ""
+        self.jjs_dummy_last_seen = 0.0
+        self.jjs_dummy_lost_cycles = 0
+        self.jjs_dummy_center = None
+        self.jjs_camera_sweep = 0
         self.game_recommended_actions = []
         self.game_recommendation_ts = 0.0
         self.game_action_lock = threading.Lock()
@@ -555,6 +559,10 @@ class NariApp:
                 "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
             )
         self.game_target_title=title
+        self.jjs_dummy_last_seen=0.0
+        self.jjs_dummy_lost_cycles=0
+        self.jjs_dummy_center=None
+        self.jjs_camera_sweep=0
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -782,69 +790,112 @@ class NariApp:
                 and str(x.get("type","")).lower() not in {"remember","social_update","self_update","drive_update","private_note","done"}
             ][:2]
 
-            # Control local del objetivo JJS: el VLM detecta el Dummy y el
-            # ejecutivo corrige encuadre/acercamiento antes de dejar que ataque.
+            # Control local del objetivo JJS. Esta capa no depende de que el VLM
+            # haya escrito correctamente el nombre "Dummy": si el marcador verde es visible,
+            # el apuntado se ejecuta de forma determinista.
+            forced_action=None
+            forced_source=""
             if profile == "jjs":
-                marker = None
+                marker=None
                 try:
-                    marker = self.screen.find_dummy_marker(frame)
+                    marker=self.screen.find_dummy_marker(frame)
                 except Exception:
-                    marker = None
+                    marker=None
+
+                now_target=time.monotonic()
                 if marker is not None:
-                    result["target_visible"] = True
-                    result["target_is_dummy"] = True
-                    result["target_center_x"] = float(marker["center_x"])
-                    result["target_center_y"] = float(marker["center_y"])
-                    result["target_name"] = "Dummy"
+                    self.jjs_dummy_last_seen=now_target
+                    self.jjs_dummy_lost_cycles=0
+                    self.jjs_dummy_center=(float(marker["center_x"]),float(marker["center_y"]))
+
+                    result["target_visible"]=True
+                    result["target_is_dummy"]=True
+                    result["target_center_x"]=float(marker["center_x"])
+                    result["target_center_y"]=float(marker["center_y"])
+                    result["target_name"]="Dummy"
+
                     if not result.get("target_distance"):
-                        result["target_distance"] = 0.55
+                        marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
+                        size_ratio=marker_size/max(1,frame.shape[1])
+                        if size_ratio < 0.022:
+                            fallback_distance=0.90
+                        elif size_ratio < 0.035:
+                            fallback_distance=0.76
+                        elif size_ratio < 0.052:
+                            fallback_distance=0.58
+                        else:
+                            fallback_distance=0.38
+                        result["target_distance"]=fallback_distance
+                else:
+                    self.jjs_dummy_lost_cycles+=1
+                    if self.jjs_dummy_center is not None and (now_target-self.jjs_dummy_last_seen) <= 0.22:
+                        result["target_visible"]=True
+                        result["target_is_dummy"]=True
+                        result["target_name"]="Dummy"
+                        result["target_center_x"]=self.jjs_dummy_center[0]
+                        result["target_center_y"]=self.jjs_dummy_center[1]
 
-                visible = bool(result.get("target_visible", False))
-                target_lost_cycles = 0 if visible else target_lost_cycles + 1
+                visible=bool(result.get("target_visible",False))
                 try:
-                    target_x = float(result.get("target_center_x", 0.5) or 0.5)
+                    target_x=float(result.get("target_center_x",0.5) or 0.5)
                 except Exception:
-                    target_x = 0.5
-                target_x = max(0.0, min(1.0, target_x))
+                    target_x=0.5
                 try:
-                    target_y = float(result.get("target_center_y", 0.5) or 0.5)
+                    target_y=float(result.get("target_center_y",0.5) or 0.5)
                 except Exception:
-                    target_y = 0.5
-                target_y = max(0.0, min(1.0, target_y))
-                try:
-                    distance = float(result.get("target_distance", 1.0) or 1.0)
-                except Exception:
-                    distance = 1.0
-                distance = max(0.0, min(1.0, distance))
-                target_name = str(result.get("target_name", "") or "").lower()
-                is_dummy = bool(result.get("target_is_dummy", False)) or "dummy" in target_name or "dummie" in target_name
-                centered = abs(target_x - 0.5) <= 0.09 and abs(target_y - 0.5) <= 0.10
+                    target_y=0.5
+                target_x=max(0.0,min(1.0,target_x))
+                target_y=max(0.0,min(1.0,target_y))
 
-                if visible and not centered:
-                    dx = int(max(-260, min(260, (target_x - 0.5) * 760)))
-                    dy = int(max(-180, min(180, (target_y - 0.5) * 640)))
-                    candidates = [{
-                        "type": "camera_turn",
-                        "dx": dx,
-                        "dy": dy,
-                        "seconds": 0.075,
-                    }] + candidates
-                elif visible and centered and is_dummy and not bool(result.get("cooldown_active", False)):
-                    if distance > 0.68:
-                        candidates = [{"type": "hold", "key": "w", "seconds": 0.24}] + candidates
-                    else:
-                        candidates = [{"type": "m1", "seconds": 0.055}] + candidates
-                elif not visible and target_lost_cycles >= 3:
-                    sweep = -190 if ((self.game_cycle // 3) % 2 == 0) else 190
-                    candidates = [{
-                        "type": "camera_turn",
-                        "dx": sweep,
-                        "dy": 0,
-                        "seconds": 0.075,
-                    }] + candidates
+                target_name=str(result.get("target_name","") or "").lower()
+                is_dummy=bool(result.get("target_is_dummy",False)) or "dummy" in target_name or "dummie" in target_name
+                centered=abs(target_x-0.5) <= 0.055 and abs(target_y-0.5) <= 0.070
 
-            confidence = float(result.get("confidence", 0.0) or 0.0)
-            action, source = self.agent.game_choose_action(candidates, confidence, self.game_cycle, frame)
+                try:
+                    distance=float(result.get("target_distance",0.82) or 0.82)
+                except Exception:
+                    distance=0.82
+                distance=max(0.0,min(1.0,distance))
+
+                if visible and is_dummy and not centered:
+                    # El historial de acciones no puede bloquear el apuntado.
+                    dx=int(max(-300,min(300,(target_x-0.5)*920)))
+                    dy=int(max(-220,min(220,(target_y-0.5)*760)))
+                    if abs(dx)<8 and target_x != 0.5:
+                        dx=8 if target_x>0.5 else -8
+                    if abs(dy)<8 and target_y != 0.5:
+                        dy=8 if target_y>0.5 else -8
+                    forced_action={
+                        "type":"camera_turn",
+                        "dx":dx,
+                        "dy":dy,
+                        "seconds":0.10,
+                    }
+                    forced_source="target-lock"
+                elif visible and is_dummy and centered:
+                    if distance > 0.62:
+                        forced_action={"type":"hold","key":"w","seconds":0.24}
+                        forced_source="target-approach"
+                    elif not bool(result.get("cooldown_active",False)):
+                        forced_action={"type":"m1","seconds":0.055}
+                        forced_source="target-attack"
+                elif not visible and self.jjs_dummy_lost_cycles >= 2:
+                    self.jjs_camera_sweep+=1
+                    sweep=-220 if self.jjs_camera_sweep % 2 else 220
+                    forced_action={
+                        "type":"camera_turn",
+                        "dx":sweep,
+                        "dy":0,
+                        "seconds":0.10,
+                    }
+                    forced_source="target-search"
+
+            confidence=float(result.get("confidence",0.0) or 0.0)
+            if forced_action is not None:
+                action=self.agent.game_validate_action(forced_action)
+                source=forced_source
+            else:
+                action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
 
             try:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
