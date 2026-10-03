@@ -88,7 +88,7 @@ class NariApp:
         self.computer.set_host_window(self.root.winfo_id())
         self.game_infer_lock = threading.Lock()
         self.game_target_title = ""
-        self.game_recommended_action = None
+        self.game_recommended_actions = []
         self.game_recommendation_ts = 0.0
         self.game_action_lock = threading.Lock()
         self.root.bind("<F8>", lambda e: self.emergency_stop())
@@ -354,6 +354,9 @@ class NariApp:
         notes = ttk.Frame(tabs, style="Panel.TFrame", padding=10); tabs.add(notes, text="Privado")
         self.private_text = tk.Text(notes,bg="#0e1118",fg=TEXT,relief="flat",font=("Consolas",9));self.private_text.pack(fill="both",expand=True)
         ttk.Button(notes,text="Actualizar",command=self._refresh_developer).pack(anchor="e",pady=6)
+        internal = ttk.Frame(tabs, style="Panel.TFrame", padding=10); tabs.add(internal, text="Interno")
+        self.internal_text = tk.Text(internal, bg="#0e1118", fg=TEXT, relief="flat", font=("Consolas",9), wrap="word")
+        self.internal_text.pack(fill="both", expand=True)
         system = ttk.Frame(tabs, style="Panel.TFrame", padding=10); tabs.add(system, text="Sistema")
         ttk.Label(system,text="Modelo de texto rápido:",background=PANEL,foreground=TEXT).pack(anchor="w")
         self.model_var = tk.StringVar(value=self.settings.get("text_model","qwen3:1.7b")); ttk.Entry(system,textvariable=self.model_var).pack(fill="x",pady=5)
@@ -558,8 +561,9 @@ class NariApp:
                 self.game_learning_status.set("Aprendizaje: exploración inicial")
             except Exception as exc:
                 self._status("⚠ Aprendizaje: "+str(exc)[:90])
-        self.game_recommended_action = None
-        self.game_recommendation_ts = 0.0
+        with self.game_action_lock:
+            self.game_recommended_actions = []
+            self.game_recommendation_ts = 0.0
         threading.Thread(target=self._game_action_loop,args=(profile,),daemon=True).start()
         threading.Thread(target=self._game_loop,args=(profile,),daemon=True).start()
         self.game_status.set(f"ACTIVO • {profile} • foco: {title}"); self._status(f"🎮 NARI jugando • {profile}")
@@ -606,7 +610,7 @@ class NariApp:
             except Exception:
                 pass
         with self.game_action_lock:
-            self.game_recommended_action=None
+            self.game_recommended_actions=[]
             self.game_recommendation_ts=0.0
         self.last_learning_frame=None
         self.last_learning_state=""
@@ -672,11 +676,11 @@ class NariApp:
 
                 state = self.agent.game_state_key(frame, profile) if self.learning_enabled else ""
                 with self.game_action_lock:
-                    recommended = self.game_recommended_action
+                    recommended = self.game_recommended_actions.pop(0) if self.game_recommended_actions else None
                     age = now - self.game_recommendation_ts
 
                 source = "aprendizaje"
-                if recommended and age < 1.2:
+                if recommended is not None and age < 2.5:
                     action = recommended
                     source = "vision"
                 elif self.learning_enabled:
@@ -798,7 +802,7 @@ class NariApp:
                     )
 
                     with self.game_action_lock:
-                        previous = self.game_recommended_action
+                        previous = self.game_recommended_actions[0] if self.game_recommended_actions else None
 
                     previous_label = (
                         self.agent.game_learner.action_key(previous)
@@ -834,14 +838,23 @@ class NariApp:
 
                     if executable:
                         with self.game_action_lock:
-                            self.game_recommended_action = executable[0]
+                            self.game_recommended_actions = executable[:3]
                             self.game_recommendation_ts = time.monotonic()
+                        self.agent.decision_record(
+                            profile,
+                            goal,
+                            result,
+                            self.agent.game_learner.action_key(executable[0]),
+                        )
                     elif result.get("error"):
                         self._status("⚠️ visión: " + str(result["error"])[:110])
 
                     reply = str(result.get("reply", "")).strip()
-                    if reply and self.game_cycle % 3 == 0:
+                    plan = str(result.get("plan", "")).strip()
+                    if reply and self.game_cycle % 4 == 0:
                         self._append_chat("NARI", "🎮 " + reply, "nari")
+                    elif plan and self.game_cycle % 5 == 0:
+                        self._append_chat("NARI", "🎮 Plan: " + plan, "nari")
 
                     self.game_cycle += 1
                     next_allowed = time.perf_counter() + min_interval
@@ -922,6 +935,34 @@ class NariApp:
         self.state_text.insert("end","\nIMPULSOS\n\n")
         for n,s,r in drives: self.state_text.insert("end",f"{n:14} {s:.3f}  {r}\n")
         self.private_text.delete("1.0","end"); self.private_text.insert("end","\n".join(self.memory.private_notes(20)))
+        try:
+            self.internal_text.delete("1.0","end")
+            latest=self.agent.decision_latest()
+            rows=self.agent.decision_recent(12)
+            if latest:
+                self.internal_text.insert(
+                    "end",
+                    "DECISIÓN ACTUAL\n\n"
+                    f"Objetivo: {latest.get('goal','')}\n"
+                    f"Observación: {latest.get('observation','')}\n"
+                    f"Plan: {latest.get('plan','')}\n"
+                    f"Acción: {latest.get('decision','')}\n"
+                    f"Confianza: {float(latest.get('confidence',0.0)):.2f}\n\n"
+                    "HISTORIAL RECIENTE\n\n"
+                )
+                for row in reversed(rows):
+                    stamp=time.strftime("%H:%M:%S",time.localtime(float(row.get('created',time.time()))))
+                    self.internal_text.insert(
+                        "end",
+                        f"[{stamp}] {row.get('decision','')}\n"
+                        f"  plan: {row.get('plan','')}\n"
+                        f"  obs: {row.get('observation','')}\n\n"
+                    )
+            else:
+                self.internal_text.insert("end","Aún no hay decisiones internas registradas.")
+        except Exception as exc:
+            self.internal_text.delete("1.0","end")
+            self.internal_text.insert("end","No se pudo cargar el estado interno: "+str(exc))
         self._refresh_people()
 
     def _idle_tick(self):
