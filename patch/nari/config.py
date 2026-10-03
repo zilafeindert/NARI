@@ -35,8 +35,8 @@ def load_settings() -> dict:
         "max_utterance_seconds": MAX_UTTERANCE_SECONDS,
         "screen_fps": 20,
         "vision_interval": 0.28,
-        "game_analysis_width": 768,
-        "temporal_frames": 1,
+        "game_analysis_width": 896,
+        "temporal_frames": 3,
         "talk_when_idle": False,
         "game_autonomy": False,
         "recognize_people": False,
@@ -45,7 +45,7 @@ def load_settings() -> dict:
         "voice_enabled": True,
         "fast_mode": True,
         "game_profile": "generic",
-        "game_inference_fps": 4.0,
+        "game_inference_fps": 3.0,
         "game_max_actions": 2,
         "update_source": "github",
         "github_repo": OFFICIAL_UPDATE_REPO,
@@ -54,7 +54,7 @@ def load_settings() -> dict:
         "microphone_device": None,
         "learning_enabled": True,
         "learning_exploration": 0.08,
-        "performance_profile_version": 3,
+        "performance_profile_version": 4,
     }
     if SETTINGS_FILE.exists():
         try:
@@ -66,7 +66,7 @@ def load_settings() -> dict:
     # Migración de rendimiento: reemplaza ajustes heredados lentos por el
     # perfil de baja latencia de NARI, una sola vez.
     try:
-        if int(base.get("performance_profile_version", 0) or 0) < 3:
+        if int(base.get("performance_profile_version", 0) or 0) < 4:
             base["screen_fps"] = 20
             base["vision_interval"] = 0.18
             base["game_analysis_width"] = 640
