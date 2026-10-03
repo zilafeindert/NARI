@@ -35,7 +35,7 @@ class NariApp:
         self.settings = load_settings()
         self.memory = Memory(MEMORY_DB)
         self.computer = Computer(DATA)
-        self.screen = ScreenVideo(self.settings.get("screen_fps", 30), analysis_width=960)
+        self.screen = ScreenVideo(self.settings.get("screen_fps", 20), analysis_width=int(self.settings.get("game_analysis_width", 768)))
         self.people = PeopleVision(MODELS / "vision")
         self.agent = Agent(self.memory, self.computer, web_search, self._status, self._token)
         self.agent.set_settings(self.settings)
@@ -52,6 +52,7 @@ class NariApp:
         voice_name = self.settings.get("voice", "es_MX-claude-high")
         voice_file = VOICES / f"{voice_name}.onnx"
         self.tts = TTS(voice_file, self.settings.get("voice_enabled", True))
+        self.tts.on_error = lambda msg: self._status("❌ Voz: " + str(msg)[:130])
         self.listener = VoiceListener(
             DATA / "vosk-model-small-es-0.42",
             self.settings.get("wake_word", "nari"),
@@ -602,68 +603,9 @@ class NariApp:
         self.game_learning_status.set("Aprendizaje: sesión guardada")
         self._status("🎮 Juego detenido")
 
-    def _game_action_loop(self, profile: str):
-        # Control continuo independiente de la visión: el juego no queda congelado
-        # mientras Ollama analiza un fotograma.
-        interval = 0.38 if profile == 'roblox' else 0.55
-        last_frame = None
-        last_state = ''
-        last_action = None
-        last_label = ''
-        cycle = 0
-        while self.game_running:
-            try:
-                frame = self.screen.latest()
-                if frame is None:
-                    time.sleep(0.05)
-                    continue
-
-                if self.learning_enabled and last_frame is not None and last_action is not None:
-                    reward = self.agent.game_learner.frame_reward(last_frame, frame)
-                    self.agent.game_record(profile, last_state, last_action, reward, 'live', 'resultado despues de la accion')
-
-                state = self.agent.game_state_key(frame, profile) if self.learning_enabled else ''
-                with self.game_action_lock:
-                    recommended = self.game_recommended_action
-                    age = time.monotonic() - self.game_recommendation_ts
-                action = None
-                source = 'aprendizaje'
-                if recommended and age < 3.0:
-                    action = recommended
-                    source = 'vision'
-                elif self.learning_enabled:
-                    action = self.agent.game_fallback_action(profile, frame, cycle)[0]
-                else:
-                    action = {'type':'hold','key':'w','seconds':0.45} if profile == 'roblox' else {'type':'wait','seconds':0.2}
-
-                if not isinstance(action, dict):
-                    time.sleep(interval)
-                    continue
-
-                self.computer.keep_target_focused()
-                summary = self.agent.execute_actions({'actions':[action]}, True)
-                cycle += 1
-                last_frame = frame.copy()
-                last_state = state
-                last_action = action
-                last_label = self.agent.game_learner.action_key(action) if self.learning_enabled else str(action.get('type',''))
-
-                if self.learning_enabled:
-                    try:
-                        stats = self.agent.game_stats(profile)
-                        self.root.after(0, lambda s=stats,a=last_label,src=source:
-                            self.game_learning_status.set(f'Aprendizaje • {s["experiences"]} exp • media {s["avg_reward"]:+.2f} • {src}: {a}'))
-                    except Exception:
-                        pass
-                if summary and cycle % 4 == 0:
-                    self._status(f'🎮 Acción: {last_label}')
-            except Exception as exc:
-                self._status('⚠️ Control de juego: ' + str(exc)[:110])
-            time.sleep(interval)
-
-    def _game_loop(self,profile:str):
+    def _game_action_loop(self, profile: str):,        # Capa de control de baja latencia. Las teclas de movimiento se mantienen,        # de forma continua; la visión solo decide cuándo cambiar de dirección.,        tick = 0.08 if profile == 'roblox' else 0.14,        move_commit = 0.48 if profile == 'roblox' else 0.40,        active_key = None,        action_until = 0.0,        last_frame = None,        last_state = '',        last_action = None,        last_label = '',        last_record = 0.0,        cycle = 0,        last_ui = 0.0,,        def stop_move():,            nonlocal active_key,            if active_key:,                try: self.computer.act({'type':'key_up','key':active_key}),                except Exception: pass,                active_key=None,,        while self.game_running:,            try:,                now=time.monotonic(),                frame=self.screen.latest(),                if frame is None:,                    time.sleep(tick),                    continue,,                # Aprende con menos commits de SQLite para no convertir el,                # aprendizaje en el cuello de botella.,                if self.learning_enabled and last_action is not None and now-last_record >= 0.70:,                    reward=self.agent.game_learner.frame_reward(last_frame,frame) if last_frame is not None else 0.0,                    self.agent.game_record(profile,last_state,last_action,reward,'live','resultado visual'),                    last_record=now,                    last_frame=frame.copy(),,                if now < action_until:,                    time.sleep(tick),                    continue,,                state=self.agent.game_state_key(frame,profile) if self.learning_enabled else '',                with self.game_action_lock:,                    recommended=self.game_recommended_action,                    age=now-self.game_recommendation_ts,                action=None,                source='aprendizaje',                if recommended and age < 1.5:,                    action=recommended,                    source='vision',                elif self.learning_enabled:,                    action=self.agent.game_fallback_action(profile,frame,cycle)[0],                else:,                    action={'type':'hold','key':'w','seconds':move_commit} if profile=='roblox' else {'type':'wait','seconds':0.15},,                if not isinstance(action,dict):,                    time.sleep(tick); continue,                kind=str(action.get('type','')).lower(),                key=str(action.get('key','')).lower(),,                # Un solo desplazamiento mantiene coherencia espacial en vez de,                # encadenar W/A/D distintos cada décima de segundo.,                if profile=='roblox' and kind=='hold' and key in {'w','a','d','s'}:,                    if active_key != key:,                        stop_move(),                        self.computer.act({'type':'key_down','key':key}),                        active_key=key,                    action_until=now+max(0.30,min(0.85,float(action.get('seconds',move_commit)))),                elif profile=='roblox' and kind=='keys' and set(str(x).lower() for x in action.get('keys',[])) >= {'shift','w'}:,                    stop_move(),                    self.computer.act({'type':'keys','keys':['shift','w'],'seconds':0.50}),                    action_until=now+0.52,                elif kind in {'camera_drag','camera_turn'}:,                    stop_move(),                    self.computer.act(action),                    action_until=now+0.10,                else:,                    stop_move(),                    self.computer.act(action),                    action_until=now+(0.10 if kind in {'click','press','key_down','key_up'} else 0.16),,                cycle += 1,                last_state=state,                last_action=action,                last_label=self.agent.game_learner.action_key(action) if self.learning_enabled else kind,                if last_frame is None: last_frame=frame.copy(),,                if self.learning_enabled and now-last_ui>0.45:,                    try:,                        stats=self.agent.game_stats(profile),                        self.root.after(0,lambda s=stats,a=last_label,src=source:,                            self.game_learning_status.set(f'Aprendizaje • {s["experiences"]} exp • media {s["avg_reward"]:+.2f} • {src}: {a}')),                        last_ui=now,                    except Exception: pass,            except Exception as exc:,                stop_move(),                self._status('⚠️ Control de juego: '+str(exc)[:110]),                time.sleep(0.20),        stop_move(),    def _game_loop(self,profile:str):
         goal=self.game_goal.get().strip() or 'Explora el juego, aprende los controles y actúa de forma continua.'
-        min_interval=max(1.0,1.0/max(0.5,float(self.settings.get('game_inference_fps',2.0))))
+        min_interval=max(0.20,1.0/max(0.5,float(self.settings.get('game_inference_fps',4.0))))
         next_allowed=0.0
         while self.game_running:
             if __import__('sys').platform == 'win32':
@@ -684,7 +626,7 @@ class NariApp:
 
             if now >= next_allowed and not self.game_infer_lock.locked():
                 with self.game_infer_lock:
-                    imgs,latest=self.screen.image_bytes(1)
+                    imgs,latest=self.screen.image_bytes(1,max_width=int(self.settings.get('game_analysis_width',768)))
                     if not imgs or latest is None:
                         continue
                     state=self.agent.game_state_key(frame,profile) if self.learning_enabled else ''
