@@ -19,6 +19,13 @@ DEFAULT_ACTIONS = {
         "sprint_forward",
         "interact",
         "toggle_shift_lock",
+        "press_e",
+        "press_q",
+        "press_r",
+        "press_f",
+        "press_1",
+        "press_2",
+        "press_3",
         "look_left",
         "look_right",
         "look_up",
@@ -238,6 +245,8 @@ class GameLearner:
             return {"type": "press", "key": "e"}
         if key == "toggle_shift_lock":
             return {"type": "toggle_shift_lock"}
+        if key.startswith("press_") and len(key) == 7:
+            return {"type": "press", "key": key[-1]}
         if key == "look_left":
             return {"type": "camera_turn", "dx": -420, "dy": 0, "seconds": 0.10}
         if key == "look_right":
