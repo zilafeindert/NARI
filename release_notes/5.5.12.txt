@@ -1,0 +1,5 @@
+NARI 5.5.12
+
+- Includes the full JJS combat executive from 5.5.11.
+- Includes stronger combat rewards and canonical action-key learning.
+- Includes the final separation between player death and enemy KO, preventing false recovery pauses after defeating an opponent.
