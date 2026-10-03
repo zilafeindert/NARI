@@ -303,6 +303,7 @@ class NariApp:
         ttk.Button(bar, text="JUGAR", style="Accent.TButton", command=self.start_game).pack(side="left", padx=(8,0))
         ttk.Button(bar, text="PARAR", command=self.stop_game).pack(side="left", padx=(6,0))
         ttk.Button(bar, text="PROBAR W", command=self._test_game_key).pack(side="left", padx=(6,0))
+        ttk.Button(bar, text="PROBAR RATÓN", command=self._test_game_mouse).pack(side="left", padx=(6,0))
         info = ttk.Frame(f, style="Panel.TFrame"); info.pack(fill="x", pady=4)
         self.game_status = tk.StringVar(value="Listo")
         ttk.Label(info, textvariable=self.game_status, background=PANEL, foreground=MUTED).pack(side="left")
@@ -510,6 +511,24 @@ class NariApp:
         self._status(("✅ " if ok else "❌ ")+msg)
         self.game_status.set(msg)
 
+    def _test_game_mouse(self):
+        profile=self.game_profile_var.get().strip() or "generic"
+        self.computer.clear_stop()
+        focused,title=self.computer.focus_game(profile)
+        if not focused:
+            messagebox.showwarning("Ratón", "No encontré la ventana del juego.")
+            return
+        self.computer.focus_window(self.computer.target_hwnd)
+        try:
+            self.computer.act({"type":"mouse_move_rel","dx":80,"dy":0})
+            time.sleep(0.08)
+            self.computer.act({"type":"mouse_move_rel","dx":-80,"dy":0})
+            self.game_status.set("Ratón: movimiento enviado")
+            self._status("🖱️ Movimiento de ratón enviado al juego")
+        except Exception as exc:
+            self.game_status.set("Ratón: error")
+            self._status("❌ Ratón: "+str(exc)[:100])
+
     def stop_game(self):
         self.game_running=False
         self.computer.stop()
@@ -562,17 +581,32 @@ class NariApp:
                     if result.get("error"):
                         self._status("⚠ visión: "+str(result["error"])[:110])
                         action_summary=""
+                    elif not self.game_running:
+                        action_summary=""
                     else:
                         action_summary=self.agent.execute_actions(result,True)
 
-                    # Movimiento de respaldo para que el agente tenga control aun
-                    # cuando el modelo visual no devuelve una accion en un ciclo.
-                    if self.game_running and not result.get("actions"):
+                    if self.game_running:
+                        raw_actions=result.get("actions") or []
+                        executable=[x for x in raw_actions if isinstance(x,dict) and str(x.get("type","")).lower() not in {
+                            "remember","social_update","self_update","drive_update","private_note","done"
+                        }]
                         self.computer.keep_target_focused()
-                        self.computer.act({"type":"hold","key":"w","seconds":0.28})
-                        drift=((self.game_cycle%7)-3)*18
-                        self.computer.act({"type":"mouse_move_rel","dx":drift,"dy":0})
-                        if profile in {"roblox","generic"} and self.game_cycle % 9 == 0:
+
+                        # Movimiento base: si la visión no dio acciones ejecutables,
+                        # NARI sigue explorando con teclado y ratón.
+                        if not executable:
+                            self.computer.act({"type":"hold","key":"w","seconds":0.28})
+                            drift=((self.game_cycle%7)-3)*22
+                            self.computer.act({"type":"mouse_move_rel","dx":drift,"dy":0})
+
+                        # Si el modelo dio teclado pero no controló el ratón,
+                        # hacemos una pequeña exploración del cursor.
+                        elif not any(str(x.get("type","")).lower() in {"click","double_click","move","drag","mouse_move_rel"} for x in executable):
+                            drift=((self.game_cycle%9)-4)*14
+                            self.computer.act({"type":"mouse_move_rel","dx":drift,"dy":0})
+
+                        if profile in {"roblox","generic"} and self.game_cycle % 10 == 0:
                             self.computer.act({"type":"press","key":"space"})
                         reply=str(result.get("reply","")).strip()
                         if reply and self.game_cycle % 2 == 0:
