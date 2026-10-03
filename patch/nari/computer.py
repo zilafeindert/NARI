@@ -374,6 +374,12 @@ class Computer:
                 time.sleep(max(0.003,total/steps*0.55))
         finally:
             self._mouse_button("right", False)
+            # Un pulso adicional sin RMB cubre experiencias que usan
+            # MouseBehavior/MouseLock en vez de cámara Classic.
+            try:
+                self._mouse_move_rel(int(dx*0.22), int(dy*0.22))
+            except Exception:
+                pass
             time.sleep(0.008)
 
     def act(self, action):
