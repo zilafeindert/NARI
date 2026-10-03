@@ -54,7 +54,36 @@ class Computer:
             try: ctypes.windll.user32.ShowWindow(self.host_hwnd,6)
             except Exception: pass
 
-    def track_foreground(self): pass
+    def track_foreground(self):
+        if not self.target_title:
+            return
+        try:
+            user32=ctypes.windll.user32
+            hwnd=user32.GetForegroundWindow()
+            n=user32.GetWindowTextLengthW(hwnd)
+            buf=ctypes.create_unicode_buffer(n+1)
+            user32.GetWindowTextW(hwnd,buf,n+1)
+            current=buf.value.strip().lower()
+            if self.target_title.lower() not in current:
+                self.focus_title(self.target_title)
+        except Exception:
+            pass
+
+    def focus_title(self,title):
+        title=str(title or "").strip()
+        if not title: return False
+        for hwnd,window_title in self._windows():
+            if window_title.strip().lower()==title.lower() or title.lower() in window_title.lower():
+                try:
+                    user32=ctypes.windll.user32
+                    user32.ShowWindow(hwnd,9)
+                    user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.04)
+                    self.target_title=window_title
+                    return True
+                except Exception:
+                    return False
+        return False
 
     def _key(self,key,down=True):
         if pyautogui is None: return False
@@ -66,6 +95,8 @@ class Computer:
 
     def act(self,a):
         if self.stop_event: return "stopped"
+        if self.target_title:
+            self.focus_title(self.target_title)
         t=str(a.get("type","")).lower()
         try:
             if t=="press": return "ok" if self._key(str(a.get("key","")),True) and self._key(str(a.get("key","")),False) else "failed"
