@@ -314,7 +314,7 @@ class NariApp:
         bar = ttk.Frame(f, style="Panel.TFrame"); bar.pack(fill="x", pady=(0,8))
         ttk.Label(bar, text="Perfil:", background=PANEL, foreground=TEXT).pack(side="left")
         self.game_profile_var = tk.StringVar(value=self.settings.get("game_profile", "generic"))
-        self.game_profile = ttk.Combobox(bar, textvariable=self.game_profile_var, state="readonly", values=["generic", "roblox", "limbus"], width=12)
+        self.game_profile = ttk.Combobox(bar, textvariable=self.game_profile_var, state="readonly", values=["generic", "roblox", "jjs", "limbus"], width=12)
         self.game_profile.pack(side="left", padx=(7,10))
         self.game_goal = ttk.Entry(bar); self.game_goal.insert(0, "Juega por tu cuenta y aprende los controles del entorno."); self.game_goal.pack(side="left", fill="x", expand=True)
         ttk.Button(bar, text="JUGAR", style="Accent.TButton", command=self.start_game).pack(side="left", padx=(8,0))
