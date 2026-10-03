@@ -1,0 +1,8 @@
+NARI 5.2.6
+
+Chat privado y permanente.
+- Se elimina la apariencia de servidor/canales tipo Discord.
+- El chat vuelve a ser una sola conversación entre Tú y NARI.
+- Los mensajes se guardan en data/nari.db.
+- El historial se carga al iniciar y no existe funcion de borrado en la interfaz ni como accion del agente.
+- Se conserva contexto reciente del chat al reiniciar.
