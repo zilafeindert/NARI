@@ -98,11 +98,8 @@ class Agent:
         configured = str(self.settings.get("vision_model", "qwen3-vl:2b")).strip()
         models = self._available_models()
         if models:
-            # Si esta disponible una variante mas grande de la misma familia,
-            # la usamos para decisiones visuales mas precisas sin romper equipos
-            # que solo tengan el modelo configurado.
-            if configured == "qwen3-vl:2b" and "qwen3-vl:4b" in models:
-                return "qwen3-vl:4b"
+            # Para control en tiempo real se respeta el modelo configurado.
+            # No se fuerza la variante 4B porque aumenta mucho la latencia.
             if configured in models:
                 return configured
         hints = ("vl", "vision", "llava", "minicpm-v")
@@ -195,7 +192,15 @@ class Agent:
             "reply": str(result.get("reply", result.get("message", ""))).strip(),
             "actions": actions,
         }
-        for key in ("reward", "progress", "progress_delta", "action_effect", "observation", "goal_state", "done", "confidence", "plan", "decision_note", "mode"):
+        for key in (
+            "reward", "progress", "progress_delta", "action_effect",
+            "observation", "goal_state", "done", "confidence", "plan",
+            "decision_note", "mode",
+            "hit_confirmed", "block_success", "ko_confirmed", "death_or_ko",
+            "ability_whiff", "cooldown_active", "target_visible",
+            "target_center_x", "target_distance", "target_distance_delta",
+            "enemy_health_delta", "player_health_delta", "aim_alignment_delta"
+        ):
             if key in result:
                 try:
                     if key in {"reward", "progress", "confidence"}:
@@ -273,8 +278,10 @@ class Agent:
                 "W+W = sprint; Shift = Shift Lock. El HUD y el estado del personaje mandan: "
                 "no uses una habilidad si parece estar en cooldown, bloqueado o sin objetivo. "
                 "Busca al rival, acerca distancia con movimiento/dash, confirma impacto y "
-                "alternar ataque, defensa y reposicionamiento. La camara debe seguir al objetivo, "
-                "no girar al azar."
+                "alterna ataque, defensa y reposicionamiento. Si el rival esta fuera del centro "
+                "(target_center_x < 0.40 o > 0.60), gira la camara hacia el rival con camera_turn "
+                "en vez de esperar otro ciclo. En JJS el giro usa RMB y debe ser corto pero visible; "
+                "no gires si no hay objetivo."
             )
         elif profile == "roblox":
             controls = (
@@ -326,16 +333,25 @@ class Agent:
                 "Observa las imagenes. Determina que intenta conseguir el jugador, "
                 "que elemento visible es relevante y propone hasta dos microacciones. "
                 "La primera debe ser la mejor; la segunda una alternativa util y distinta. "
-                "Tambien evalua la accion anterior: action_effect=-1..1 indica si ayudo al objetivo; "
-                "progress_delta=-1..1 indica si el estado avanzo o retrocedio. Si no hubo accion anterior, usa 0."
+                "Evalua tambien la accion anterior. "
+                "En JJS informa hit_confirmed, block_success, ko_confirmed, ability_whiff, "
+                "cooldown_active, enemy_health_delta, player_health_delta, target_visible, "
+                "target_center_x, target_distance_delta y aim_alignment_delta cuando puedas. "
+                "enemy/player health delta: negativo significa perdida de vida; "
+                "target_distance_delta: negativo significa que se acerco; "
+                "aim_alignment_delta: positivo significa que el objetivo quedo mas centrado. "
+                "No inventes un impacto si no hay evidencia temporal."
             ),
             "images":images_b64,
         }
 
         try:
+            # Control de baja latencia: usa solo los fotogramas mas recientes.
+            vision_images = images_b64[-1:] if profile != "jjs" else images_b64[-2:]
+            msg["images"] = vision_images
             raw=self._call(
                 [{"role":"system","content":system},msg],
-                model, 8.0, 128, 1536, think=True
+                model, 5.5, 72, 1024, think=False
             )
             result=self._normalize(self._parse(raw))
 
@@ -420,8 +436,8 @@ class Agent:
     def game_reset(self, goal, profile):
         self.game_brain.reset(goal, profile)
 
-    def game_feedback(self, observation, action, reward, confidence=0.0, note=""):
-        self.game_brain.feedback(observation, action, reward, confidence, note)
+    def game_feedback(self, observation, action, reward, confidence=0.0, note="", goal_state=""):
+        self.game_brain.feedback(observation, action, reward, confidence, note, goal_state)
 
     def game_validate_action(self, action):
         return self.game_brain.validate_action(action)
@@ -433,6 +449,16 @@ class Agent:
             action,
             float(result.get("action_effect", 0.0) or 0.0),
             float(result.get("progress_delta", 0.0) or 0.0),
+            int(repeat_count),
+            int(stagnation),
+        )
+
+    def game_jjs_reward(self, raw_visual_reward, action, result=None, repeat_count=0, stagnation=0):
+        result = result or {}
+        return self.game_learner.jjs_reward(
+            raw_visual_reward,
+            action,
+            result,
             int(repeat_count),
             int(stagnation),
         )
