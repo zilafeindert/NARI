@@ -475,8 +475,7 @@ class NariApp:
 
     def _talk_now(self):
         try:
-            self.listener.arm_command(8.0)
-            self._status("🎙 Habla durante unos segundos…")
+            self.listener.arm_command(7.0)
         except Exception as exc:
             self._status("❌ Voz directa: "+str(exc)[:150])
 
