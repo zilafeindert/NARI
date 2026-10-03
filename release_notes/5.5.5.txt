@@ -1,0 +1,8 @@
+NARI 5.5.5
+
+- La percepción de juego ahora recorta el viewport real de la ventana objetivo en vez de analizar todo el escritorio.
+- La cámara de Roblox/Jujutsu Shenanigans usa movimiento relativo Win32 como ruta principal y un pulso adicional para experiencias con MouseBehavior/MouseLock.
+- Se habilita camera_key_turn como respaldo real del ejecutivo.
+- En Jujutsu Shenanigans, NARI prioriza localizar el Dummy de entrenamiento, corregir el encuadre y usar M1 cuando el Dummy está centrado y a distancia de ataque.
+- Cuando pierde el objetivo durante varios ciclos, realiza un barrido corto y vuelve a observar.
+- El workflow de publicación comprueba la sintaxis Python antes de generar el ZIP.
