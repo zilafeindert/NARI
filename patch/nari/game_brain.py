@@ -145,7 +145,7 @@ class GameBrain:
             return {"type": "click", "x": x, "y": y, "normalized": True, "button": button}
 
         if kind == "wait":
-            return {"type": "wait", "seconds": max(0.05, min(0.28, float(out.get("seconds", 0.10) or 0.10))}
+            return {"type": "wait", "seconds": max(0.05, min(0.28, float(out.get("seconds", 0.10) or 0.10)))}
 
         return {"type": "wait", "seconds": 0.08}
 
