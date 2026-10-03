@@ -744,6 +744,25 @@ class NariApp:
                 if isinstance(x, dict)
                 and str(x.get("type","")).lower() not in {"remember","social_update","self_update","drive_update","private_note","done"}
             ][:2]
+
+            # Correccion local de camara para JJS: si el VLM identifica un rival
+            # claramente fuera del centro, giramos hacia el rival sin esperar otro ciclo.
+            if profile == "jjs" and bool(result.get("target_visible", False)):
+                try:
+                    target_x = float(result.get("target_center_x", 0.5) or 0.5)
+                    target_x = max(0.0, min(1.0, target_x))
+                    if abs(target_x - 0.5) > 0.10:
+                        dx = int(max(-230, min(230, (target_x - 0.5) * 620)))
+                        camera_fix = {
+                            "type": "camera_turn",
+                            "dx": dx,
+                            "dy": 0,
+                            "seconds": 0.055,
+                        }
+                        candidates = [camera_fix] + candidates
+                except Exception:
+                    pass
+
             confidence = float(result.get("confidence", 0.0) or 0.0)
             action, source = self.agent.game_choose_action(candidates, confidence, self.game_cycle, frame)
 
