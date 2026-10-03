@@ -87,6 +87,9 @@ class NariApp:
         self.computer.set_host_window(self.root.winfo_id())
         self.game_infer_lock = threading.Lock()
         self.game_target_title = ""
+        self.game_recommended_action = None
+        self.game_recommendation_ts = 0.0
+        self.game_action_lock = threading.Lock()
         self.root.bind("<F8>", lambda e: self.emergency_stop())
         self._build_ui()
         self.global_hotkey_running = True
@@ -541,6 +544,9 @@ class NariApp:
                 self.game_learning_status.set("Aprendizaje: exploración inicial")
             except Exception as exc:
                 self._status("⚠ Aprendizaje: "+str(exc)[:90])
+        self.game_recommended_action = None
+        self.game_recommendation_ts = 0.0
+        threading.Thread(target=self._game_action_loop,args=(profile,),daemon=True).start()
         threading.Thread(target=self._game_loop,args=(profile,),daemon=True).start()
         self.game_status.set(f"ACTIVO • {profile} • foco: {title}"); self._status(f"🎮 NARI jugando • {profile}")
 
@@ -585,6 +591,9 @@ class NariApp:
                 self.agent.game_learner.end_session()
             except Exception:
                 pass
+        with self.game_action_lock:
+            self.game_recommended_action=None
+            self.game_recommendation_ts=0.0
         self.last_learning_frame=None
         self.last_learning_state=""
         self.last_learning_action=None
@@ -593,20 +602,76 @@ class NariApp:
         self.game_learning_status.set("Aprendizaje: sesión guardada")
         self._status("🎮 Juego detenido")
 
-    def _game_loop(self,profile:str):
-        goal=self.game_goal.get().strip() or "Explora el juego, aprende los controles y actúa de forma continua."
-        min_interval=max(0.35,1.0/max(0.5,float(self.settings.get("game_inference_fps",2.0))))
-        next_allowed=0.0
-        previous_note=""
-
+    def _game_action_loop(self, profile: str):
+        # Control continuo independiente de la visión: el juego no queda congelado
+        # mientras Ollama analiza un fotograma.
+        interval = 0.38 if profile == 'roblox' else 0.55
+        last_frame = None
+        last_state = ''
+        last_action = None
+        last_label = ''
+        cycle = 0
         while self.game_running:
-            # Comprobación adicional de F8 dentro del hilo del juego.
-            if __import__("sys").platform == "win32":
+            try:
+                frame = self.screen.latest()
+                if frame is None:
+                    time.sleep(0.05)
+                    continue
+
+                if self.learning_enabled and last_frame is not None and last_action is not None:
+                    reward = self.agent.game_learner.frame_reward(last_frame, frame)
+                    self.agent.game_record(profile, last_state, last_action, reward, 'live', 'resultado despues de la accion')
+
+                state = self.agent.game_state_key(frame, profile) if self.learning_enabled else ''
+                with self.game_action_lock:
+                    recommended = self.game_recommended_action
+                    age = time.monotonic() - self.game_recommendation_ts
+                action = None
+                source = 'aprendizaje'
+                if recommended and age < 3.0:
+                    action = recommended
+                    source = 'vision'
+                elif self.learning_enabled:
+                    action = self.agent.game_fallback_action(profile, frame, cycle)[0]
+                else:
+                    action = {'type':'hold','key':'w','seconds':0.45} if profile == 'roblox' else {'type':'wait','seconds':0.2}
+
+                if not isinstance(action, dict):
+                    time.sleep(interval)
+                    continue
+
+                self.computer.keep_target_focused()
+                summary = self.agent.execute_actions({'actions':[action]}, True)
+                cycle += 1
+                last_frame = frame.copy()
+                last_state = state
+                last_action = action
+                last_label = self.agent.game_learner.action_key(action) if self.learning_enabled else str(action.get('type',''))
+
+                if self.learning_enabled:
+                    try:
+                        stats = self.agent.game_stats(profile)
+                        self.root.after(0, lambda s=stats,a=last_label,src=source:
+                            self.game_learning_status.set(f'Aprendizaje • {s["experiences"]} exp • media {s["avg_reward"]:+.2f} • {src}: {a}'))
+                    except Exception:
+                        pass
+                if summary and cycle % 4 == 0:
+                    self._status(f'🎮 Acción: {last_label}')
+            except Exception as exc:
+                self._status('⚠️ Control de juego: ' + str(exc)[:110])
+            time.sleep(interval)
+
+    def _game_loop(self,profile:str):
+        goal=self.game_goal.get().strip() or 'Explora el juego, aprende los controles y actúa de forma continua.'
+        min_interval=max(1.0,1.0/max(0.5,float(self.settings.get('game_inference_fps',2.0))))
+        next_allowed=0.0
+        while self.game_running:
+            if __import__('sys').platform == 'win32':
                 try:
                     import ctypes
                     if ctypes.windll.user32.GetAsyncKeyState(0x77) & 0x8000:
                         self._emergency_stop_core()
-                        self.root.after(0, lambda: self.game_status.set("DETENIDO • F8"))
+                        self.root.after(0, lambda: self.game_status.set('DETENIDO • F8'))
                         break
                 except Exception:
                     pass
@@ -614,7 +679,7 @@ class NariApp:
             now=time.perf_counter()
             frame=self.screen.latest()
             if frame is None:
-                time.sleep(.03)
+                time.sleep(.05)
                 continue
 
             if now >= next_allowed and not self.game_infer_lock.locked():
@@ -622,127 +687,51 @@ class NariApp:
                     imgs,latest=self.screen.image_bytes(1)
                     if not imgs or latest is None:
                         continue
+                    state=self.agent.game_state_key(frame,profile) if self.learning_enabled else ''
+                    previous_label=''
+                    try:
+                        with self.game_action_lock:
+                            if self.game_recommended_action:
+                                previous_label=self.agent.game_learner.action_key(self.game_recommended_action)
+                    except Exception:
+                        pass
+                    try:
+                        result=self.agent.vision(goal,imgs,profile=profile,previous_action=previous_label,state_key=state)
+                    except Exception as exc:
+                        result={'actions':[],'reply':'','error':str(exc)}
+
+                    executable=[
+                        x for x in (result.get('actions') or [])
+                        if isinstance(x,dict) and str(x.get('type','')).lower() not in {
+                            'remember','social_update','self_update','drive_update','private_note','done'
+                        }
+                    ]
+                    if executable:
+                        with self.game_action_lock:
+                            self.game_recommended_action=executable[0]
+                            self.game_recommendation_ts=time.monotonic()
+                        previous_note='visión lista para la próxima acción'
+                    else:
+                        previous_note='sin acción visual; continúa el aprendiz local'
+
+                    reply=str(result.get('reply','')).strip()
+                    if reply and self.game_cycle % 2 == 0:
+                        self._append_chat('NARI','🎮 '+reply,'nari')
+                    if result.get('error'):
+                        self._status('⚠️ visión: '+str(result['error'])[:110])
 
                     self.game_cycle += 1
-                    previous_note=""
-                    state=self.agent.game_state_key(frame,profile) if self.learning_enabled else ""
-                    visual_reward=0.0
-
-                    if self.learning_enabled and self.last_learning_frame is not None and self.last_learning_action is not None:
-                        visual_reward=self.agent.game_learner.frame_reward(self.last_learning_frame,frame)
-
-                    previous_action_label=self.last_learning_action_label
-                    try:
-                        result=self.agent.vision(
-                            goal,
-                            imgs,
-                            profile=profile,
-                            previous_action=previous_action_label,
-                            state_key=state,
-                        )
-                    except Exception as e:
-                        result={"actions":[],"reply":"","error":str(e)}
-
-                    # La visión puede evaluar la acción anterior. Se mezcla con la
-                    # recompensa visual para formar una señal menos frágil.
-                    if self.learning_enabled and self.last_learning_action is not None:
-                        model_reward=result.get("reward",None)
-                        reward=visual_reward
-                        if model_reward is not None:
-                            try:
-                                reward=(0.70*visual_reward)+(0.30*max(-1.0,min(1.0,float(model_reward))))
-                            except Exception:
-                                pass
-                        self.agent.game_record(
-                            profile,
-                            self.last_learning_state,
-                            self.last_learning_action,
-                            reward,
-                            "vision" if not result.get("error") else "visual_failure",
-                            str(result.get("observation",""))[:300],
-                        )
-
-                    if result.get("error"):
-                        self._status("⚠ visión: "+str(result["error"])[:110])
-                        actions=[]
-                        executable=[]
-                    else:
-                        actions=result.get("actions") or []
-                        executable=[
-                            x for x in actions
-                            if isinstance(x,dict) and str(x.get("type","")).lower() not in {
-                                "remember","social_update","self_update","drive_update","private_note","done"
-                            }
-                        ]
-
-                    # Incluso si la visión falla, el aprendiz local sigue actuando
-                    # y puede aprender de la respuesta visual del juego.
-                    if self.game_running and self.learning_enabled and not executable:
-                        learned,state=self.agent.game_fallback_action(profile,frame,self.game_cycle)
-                        result["actions"]=[learned]
-                        result["reply"]="La visión falló o no encontró una acción; sigo explorando y aprendiendo."
-                        executable=[learned]
-                        previous_note="fallback aprendido"
-
-                    # Tras una recompensa muy negativa, fuerza una corrección ocasional
-                    # en lugar de repetir ciegamente la misma conducta.
-                    if (
-                        self.learning_enabled
-                        and executable
-                        and self.last_learning_action is not None
-                        and visual_reward < -0.20
-                        and self.game_cycle % 3 == 0
-                        and self.game_running
-                    ):
-                        learned,_=self.agent.game_fallback_action(profile,frame,self.game_cycle + 11)
-                        result["actions"]=[learned]
-                        result["reply"]="Ese intento no funcionó; estoy cambiando de estrategia."
-                        executable=[learned]
-                        previous_note="corrección por recompensa negativa"
-
-                    if not self.game_running:
-                        break
-
-                    action_summary=self.agent.execute_actions(result,True)
-
-                    if self.game_running and executable:
-                        self.computer.keep_target_focused()
-                        chosen=executable[0]
-                        self.last_learning_state=state
-                        self.last_learning_action=chosen
-                        self.last_learning_action_label=self.agent.game_learner.action_key(chosen)
-                        self.last_learning_frame=frame.copy()
-                        if self.learning_enabled:
-                            stats=self.agent.game_stats(profile)
-                            self.root.after(
-                                0,
-                                lambda s=stats,a=self.last_learning_action_label:
-                                    self.game_learning_status.set(
-                                        f"Aprendizaje • {s['experiences']} exp • media {s['avg_reward']:+.2f} • probando {a}"
-                                    )
-                            )
-
-                    reply=str(result.get("reply","")).strip()
-                    if reply and self.game_cycle % 2 == 0:
-                        self._append_chat("NARI","🎮 "+reply,"nari")
-                    if action_summary:
-                        self.memory.add_episode(
-                            "game",
-                            f"{profile} • ciclo {self.game_cycle}",
-                            action_summary,
-                            (reply or "acción ejecutada") + ((" • " + previous_note) if previous_note else ""),
-                        )
-
+                    if reply or previous_note:
+                        try:
+                            self.memory.add_episode('game',f'{profile} • visión {self.game_cycle}',previous_note,reply or 'observación visual')
+                        except Exception:
+                            pass
                     next_allowed=time.perf_counter()+min_interval
             else:
-                time.sleep(.015)
+                time.sleep(.02)
 
-            self.root.after(
-                0,
-                lambda p=profile,c=self.game_cycle,t=self.game_target_title:
-                    self.game_status.set(f"ACTIVO • {p} • ciclo {c} • foco: {t}")
-            )
-
+            self.root.after(0, lambda p=profile,c=self.game_cycle,t=self.game_target_title:
+                self.game_status.set(f'ACTIVO • {p} • visión {c} • foco: {t}'))
     def _refresh_ui(self):
         self.computer.track_foreground()
         if self.settings.get("show_live_preview", True):
