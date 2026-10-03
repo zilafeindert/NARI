@@ -1,8 +1,8 @@
 {
-  "version": "5.2.15",
-  "tag": "v5.2.15",
+  "version": "5.2.16",
+  "tag": "v5.2.16",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "continuous-game-control-1"
+  "release_build": "roblox-input-optimization-1"
 }
