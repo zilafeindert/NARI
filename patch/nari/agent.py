@@ -121,25 +121,41 @@ class Agent:
         return str(msg.get("content", "") or data.get("response", "") or "")
 
     @staticmethod
+    def _clean_visible_reply(value):
+        text = re.sub(r'<think>.*?</think>', '', str(value or ''), flags=re.I | re.S).strip()
+        text = re.sub(r'^\s*```(?:json|python|javascript|js|text)?\s*', '', text, flags=re.I)
+        text = re.sub(r'\s*```\s*$', '', text)
+        code_markers = ('def ', 'import ', 'from ', 'class ', 'self.', 'async ', 'except ', 'Traceback', '```')
+        lines = [x for x in text.splitlines() if x.strip()]
+        marker_hits = sum(any(m in line for m in code_markers) for line in lines)
+        if len(lines) >= 5 and marker_hits >= 3:
+            return 'Tuve un problema interpretando mi respuesta. Inténtalo de nuevo.'
+        if len(text) > 900:
+            text = text[:880].rsplit(' ', 1)[0] + '…'
+        return text.strip()
+
+    @staticmethod
     def _parse(raw):
-        text = str(raw or "")
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.I | re.S).strip()
-        text = re.sub(r"^json\s*", "", text, flags=re.I)
+        text = re.sub(r'<think>.*?</think>', '', str(raw or ''), flags=re.I | re.S).strip()
+        text = re.sub(r'^json\s*', '', text, flags=re.I)
         if not text:
-            return {"reply": "", "actions": []}
+            return {'reply': '', 'actions': []}
         try:
             value = json.loads(text)
         except Exception:
-            a, b = text.find("{"), text.rfind("}")
+            a, b = text.find('{'), text.rfind('}')
             if a >= 0 and b > a:
                 try:
                     value = json.loads(text[a:b + 1])
                 except Exception:
-                    value = {"reply": text, "actions": []}
+                    return {'reply': 'No pude interpretar la respuesta del modelo.', 'actions': []}
             else:
-                value = {"reply": text, "actions": []}
-        return value if isinstance(value, dict) else {"reply": "", "actions": []}
-
+                return {'reply': 'No pude interpretar la respuesta del modelo.', 'actions': []}
+        if not isinstance(value, dict):
+            return {'reply': '', 'actions': []}
+        if 'reply' in value:
+            value['reply'] = Agent._clean_visible_reply(value.get('reply'))
+        return value
     @staticmethod
     def _normalize(result):
         if not isinstance(result, dict):
