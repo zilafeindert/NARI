@@ -973,8 +973,6 @@ class NariApp:
                 time.sleep(45)
                 if getattr(self, "game_running", False) or getattr(self, "busy", False):
                     continue
-                if not getattr(self, "voice_var", tk.BooleanVar(value=True)).get():
-                    pass
                 value=self.agent.autonomous_reflection()
                 if value:
                     self._status("🧠 Pensamiento privado actualizado")
