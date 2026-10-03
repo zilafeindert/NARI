@@ -1,0 +1,7 @@
+NARI 5.4.0
+- No requiere entrenamiento manual del usuario para comenzar.
+- La recompensa de juego deja de tratar cualquier cambio visual como progreso.
+- Se combina cambio visual con evaluacion de efectividad de la accion y avance del objetivo.
+- Girar la camara recibe poca recompensa salvo que la propia evaluacion indique que ayudo.
+- Las repeticiones y el estancamiento reciben penalizaciones crecientes.
+- La vision evalua tambien la accion anterior mediante sus fotogramas temporales.
