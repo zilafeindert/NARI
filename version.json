@@ -1,6 +1,6 @@
 {
-  "version": "5.2.4",
-  "tag": "v5.2.4",
+  "version": "5.2.5",
+  "tag": "v5.2.5",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5"
