@@ -205,7 +205,7 @@ class NariApp:
             self.chat_canvas.itemconfigure(self.chat_window, width=event.width)
         self.chat_messages.bind("<Configure>", on_messages)
         self.chat_canvas.bind("<Configure>", on_canvas)
-        self.chat_canvas.bind_all("<MouseWheel>",
+        self.chat_canvas.bind("<MouseWheel>",
             lambda e: self.chat_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
         composer = tk.Frame(main, bg="#313338")
@@ -309,7 +309,7 @@ class NariApp:
             tk.Label(
                 content, text=str(text), bg="#313338", fg="#dbdee1",
                 justify="left", anchor="w", wraplength=760,
-                font=("Segoe UI", 10), padx=0, pady=(2,0)
+                font=("Segoe UI", 10), padx=0, pady=2
             ).pack(fill="x")
 
             self.chat_canvas.update_idletasks()
