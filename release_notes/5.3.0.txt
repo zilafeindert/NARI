@@ -1,0 +1,8 @@
+NARI 5.3.0
+- Nuevo ejecutivo de juego en ciclo cerrado.
+- NARI observa, decide una microaccion, la ejecuta y vuelve a observar antes de comprometer otra.
+- Se elimina la cola de acciones visuales obsoletas que provocaba movimientos erraticos.
+- El modelo de juego puede usar razonamiento interno cuando Ollama lo admite; solo se conserva el resumen operativo.
+- Se agrega memoria operativa de atasco, progreso, confianza y resultados para corregir acciones repetidas.
+- Movimiento y camara ahora usan microacciones validadas para mejorar precision.
+- Shift Lock queda disponible como accion contextual; Ctrl sigue siendo contextual porque Roblox no ofrece un Control Lock universal.
