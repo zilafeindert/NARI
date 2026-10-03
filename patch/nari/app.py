@@ -819,7 +819,9 @@ class NariApp:
                 self.root.after(0, lambda s=learn_text: self.game_learning_status.set(s))
 
             now=time.monotonic()
-            if (observation or decision_note or goal_state) and now-last_decision_ui >= 0.65:
+            # El chat muestra decisiones utiles, no errores tecnicos internos del VLM.
+            # Los fallos de percepcion quedan en el estado y en el indicador de juego.
+            if (observation or decision_note or goal_state) and not result.get("error") and now-last_decision_ui >= 0.65:
                 visible=f"🎮 {decision} • {decision_note or observation or goal_state}"
                 self._append_chat("NARI", visible[:420], "nari")
                 last_decision_ui=now
