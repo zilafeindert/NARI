@@ -51,6 +51,8 @@ def load_settings() -> dict:
         "update_check_on_start": True,
         "update_check_delay_seconds": 3,
         "microphone_device": None,
+        "learning_enabled": True,
+        "learning_exploration": 0.55,
     }
     if SETTINGS_FILE.exists():
         try:
