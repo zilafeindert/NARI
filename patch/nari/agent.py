@@ -17,6 +17,7 @@ GAME_PROFILES = {
 ACTION_HINT = (
     "Devuelve SOLO JSON valido con reply y actions. Cada action tiene type. "
     "Acciones: click, double_click, move, drag, press, hold, keys, key_down, key_up, "
+    "camera_drag, camera_turn, toggle_shift_lock, mouse_button_down, mouse_button_up, "
     "type, scroll, wait, open_url, open_app, remember, social_update, self_update, "
     "drive_update, private_note, done. Coordenadas 0..1000. reward=-1..1, progress=0..1, observation=texto corto."
 )
