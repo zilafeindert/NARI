@@ -3,5 +3,6 @@
   "tag": "v5.2.9",
   "name": "NARI",
   "update_mode": "github-release",
-  "minimum_bootstrap": "5.1.5"
+  "minimum_bootstrap": "5.1.5",
+  "release_build": "learning-voice-fix-2"
 }
