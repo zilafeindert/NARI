@@ -1,8 +1,8 @@
 {
-  "version": "5.2.14",
-  "tag": "v5.2.14",
+  "version": "5.2.15",
+  "tag": "v5.2.15",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "direct-voice-capture-4"
+  "release_build": "continuous-game-control-1"
 }
