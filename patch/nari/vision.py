@@ -18,6 +18,8 @@ class ScreenVideo:
         self.latest_frame=None; self.history=deque(maxlen=8)
         self.latest_game_frame=None; self.game_history=deque(maxlen=8)
         self.target_hwnd=None
+        self.last_dummy_marker=None
+        self.last_dummy_marker_ts=0.0
         self.lock=threading.Lock(); self.thread=None; self.sct=None
         self.monitor_left=0; self.monitor_top=0
     def start(self):
@@ -97,52 +99,86 @@ class ScreenVideo:
 
     @staticmethod
     def find_dummy_marker(frame):
-        """Detecta el marcador verde cuadrado que aparece sobre el Dummy de JJS."""
+        """Detecta y estabiliza el marcador verde del Dummy de entrenamiento en JJS."""
         if frame is None or cv2 is None:
             return None
         try:
             img=np.asarray(frame)
             if img.ndim != 3 or img.shape[1] < 120 or img.shape[0] < 80:
                 return None
+
             hsv=cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
-            # Verde saturado/brillante. Se filtran barras largas y zonas enormes
-            # favoreciendo componentes compactos con forma casi cuadrada.
-            mask=cv2.inRange(hsv,np.array([35,100,90],np.uint8),np.array([90,255,255],np.uint8))
+
+            # El marcador puede ser un cuadrado relleno, un contorno o verse
+            # parcialmente por el escalado. Se usan dos rangos verdes y un
+            # criterio de relleno mucho mas permisivo que en versiones previas.
+            mask1=cv2.inRange(
+                hsv,
+                np.array([32,70,70],np.uint8),
+                np.array([88,255,255],np.uint8),
+            )
+            mask2=cv2.inRange(
+                hsv,
+                np.array([40,45,100],np.uint8),
+                np.array([105,255,255],np.uint8),
+            )
+            mask=cv2.bitwise_or(mask1,mask2)
+            mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
             mask=cv2.morphologyEx(mask,cv2.MORPH_OPEN,np.ones((2,2),np.uint8))
+
             n,labels,stats,cent=cv2.connectedComponentsWithStats(mask,8)
             h,w=img.shape[:2]
             best=None
+
             for idx in range(1,n):
                 x,y,bw,bh,area=[int(v) for v in stats[idx]]
-                if area < 10 or area > max(900,int(w*h*0.004)):
+                if area < 8 or area > max(1400,int(w*h*0.006)):
                     continue
                 if bw < 3 or bh < 3:
                     continue
+
                 ratio=bw/max(1,bh)
-                if ratio < 0.60 or ratio > 1.65:
+                if ratio < 0.45 or ratio > 2.20:
                     continue
-                if max(bw,bh) > max(18,int(w*0.08)):
+                if max(bw,bh) > max(36,int(w*0.13)):
                     continue
+
                 fill=float(area)/float(max(1,bw*bh))
-                if fill < 0.40:
+                # Importante: un marcador de contorno puede tener muy poco relleno.
+                if fill < 0.08:
                     continue
+
                 cx=float(cent[idx][0])/float(w)
                 cy=float(cent[idx][1])/float(h)
-                if cx < 0.03 or cx > 0.97 or cy < 0.03 or cy > 0.93:
+                if cx < 0.015 or cx > 0.985 or cy < 0.015 or cy > 0.97:
                     continue
-                squareness=1.0-abs(1.0-ratio)
-                score=float(area)*squareness
+
+                squareness=1.0-min(0.90,abs(1.0-ratio))
+                compactness=min(1.0,fill/0.55)
+                size_ratio=max(bw,bh)/float(max(1,w))
+                small_bonus=1.0 if size_ratio <= 0.08 else max(0.0,1.0-(size_ratio-0.08)*4.0)
+                score=float(area)*(
+                    0.35*squareness +
+                    0.35*compactness +
+                    0.20*small_bonus +
+                    0.10
+                )
+
                 if best is None or score > best[0]:
-                    best=(score,cx,cy,area,bw,bh)
+                    best=(score,cx,cy,area,bw,bh,fill)
+
             if best is None:
                 return None
+
             return {
                 "center_x":max(0.0,min(1.0,best[1])),
                 "center_y":max(0.0,min(1.0,best[2])),
                 "area":int(best[3]),
                 "width":int(best[4]),
                 "height":int(best[5]),
+                "fill":float(best[6]),
             }
+
     def image_bytes(self,count=1,max_width=768):
         with self.lock:
             rows=list(self.game_history) if self.game_history else list(self.history)
