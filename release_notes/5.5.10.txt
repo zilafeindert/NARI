@@ -1,0 +1,7 @@
+NARI 5.5.10
+
+- Finalized the JJS Dummy target-lock correction.
+- Camera movement is allowed only from stable local Dummy detection or high-confidence VLM Dummy evidence.
+- Free camera oscillation is suppressed.
+- Target correction remains small, smoothed and rate-limited.
+- Roblox camera input avoids repeated cursor recentering and extra post-drag movement.
