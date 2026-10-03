@@ -1,0 +1,10 @@
+NARI 5.2.8
+
+Voz, raton y parada global.
+- El reconocimiento de “NARI” ya no depende de que el VAD haya disparado antes; Vosk analiza continuamente el microfono.
+- Se evita alimentar dos veces el mismo bloque de audio.
+- Se mantiene el dispositivo de entrada seleccionado y se muestra en el estado.
+- F8 ahora se detecta globalmente mediante GetAsyncKeyState, incluso cuando el juego tiene el foco.
+- La parada libera las teclas antes de activar el bloqueo de acciones.
+- El modo de juego añade prueba de raton y movimiento relativo.
+- La vision no puede reactivar accidentalmente la autonomia despues de F8.
