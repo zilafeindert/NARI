@@ -46,5 +46,9 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$ZIP" --clobber
           else
-            gh release create "$TAG" "$ZIP" --title "NARI ${VERSION}" --notes-file "$NOTES"
+            if [ -f "$NOTES" ]; then
+              gh release create "$TAG" "$ZIP" --title "NARI ${VERSION}" --notes-file "$NOTES"
+            else
+              gh release create "$TAG" "$ZIP" --title "NARI ${VERSION}" --notes "Actualización de NARI ${VERSION}."
+            fi
           fi
