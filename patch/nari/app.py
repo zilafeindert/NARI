@@ -772,6 +772,31 @@ class NariApp:
             # cuando haya evidencia de que sirve.
             return None, "combat-guard-read"
 
+        # Seguimiento de un rival humano: usa la posicion visual reportada por el VLM.
+        # Es un ajuste pequeno y limitado; no hace barridos cuando se pierde el objetivo.
+        try:
+            cx=max(0.0,min(1.0,num("target_center_x",0.5)))
+            cy=max(0.0,min(1.0,num("target_center_y",0.5)))
+        except Exception:
+            cx,cy=0.5,0.5
+        centered=(abs(cx-0.5)<=0.07 and abs(cy-0.5)<=0.085)
+        if not centered and confidence>=0.58:
+            if now-self.jjs_last_camera_action_ts>=0.16:
+                ex=cx-0.5
+                ey=cy-0.5
+                dx=max(-40,min(40,int(ex*240*self.jjs_camera_x_sign)))
+                dy=max(-28,min(28,int(ey*180*self.jjs_camera_y_sign)))
+                if abs(ex)>0.07 and abs(dx)<5:
+                    dx=5 if ex>0 else -5
+                if abs(ey)>0.085 and abs(dy)<5:
+                    dy=5 if ey>0 else -5
+                if dx or dy:
+                    self.jjs_last_camera_action_ts=now
+                    self.jjs_combat_phase="aim"
+                    return {"type":"camera_turn","dx":dx,"dy":dy,"seconds":0.06}, "combat-aim"
+            self.jjs_combat_phase="aim-wait"
+            return {"type":"wait","seconds":0.06}, "combat-aim-wait"
+
         if target_stunned:
             self.jjs_combat_phase="punish"
             if distance>0.58:
@@ -919,8 +944,15 @@ class NariApp:
                     kind=str(item.get("type","")).lower()
                     if kind in {"camera_turn","camera_drag","camera_key_turn"}:
                         # Los giros libres del VLM causaban oscilaciones. En JJS solo
-                        # permitimos una accion de camara si el propio VLM ve al Dummy.
-                        if not vlm_dummy:
+                        # permitimos camara si la vision confirma un objetivo relevante.
+                        camera_evidence=(
+                            vlm_dummy
+                            or (
+                                bool(result.get("target_visible",False))
+                                and float(result.get("confidence",0.0) or 0.0)>=0.58
+                            )
+                        )
+                        if not camera_evidence:
                             continue
                         try:
                             cdx=int(float(item.get("dx",0) or 0))
