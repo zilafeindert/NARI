@@ -166,6 +166,7 @@ class NariApp:
         ttk.Separator(sidebar).pack(fill="x", padx=14, pady=14)
         ttk.Checkbutton(sidebar, text="Voz", variable=self.voice_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
         ttk.Button(sidebar, text="Probar micrófono", command=self._test_microphone).pack(fill="x", padx=10, pady=(0,3))
+        ttk.Button(sidebar, text="Probar voz", command=self._test_voice).pack(fill="x", padx=10, pady=(0,3))
         ttk.Button(sidebar, text="🎙 HABLAR AHORA", command=self._talk_now).pack(fill="x", padx=10, pady=(0,5))
         ttk.Checkbutton(sidebar, text="Autonomía PC", variable=self.auto_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
         ttk.Checkbutton(sidebar, text="Modo libre", variable=self.free_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
@@ -483,6 +484,17 @@ class NariApp:
         except Exception as exc:
             self._status("❌ Voz directa: "+str(exc)[:150])
 
+    def _test_voice(self):
+        try:
+            self.tts.enabled=True
+            self.voice_var.set(True)
+            self.settings["voice_enabled"]=True
+            save_settings(self.settings)
+            self._status("🔊 Probando voz de NARI…")
+            self.tts.say("Hola. Soy NARI. Te estoy escuchando.")
+        except Exception as exc:
+            self._status("❌ Prueba de voz: "+str(exc)[:150])
+
     def _test_microphone(self):
         try:
             devices=self.listener.device_summary()
@@ -500,6 +512,7 @@ class NariApp:
 
     def _save_toggles(self):
         self.settings["voice_enabled"] = bool(self.voice_var.get())
+        self.tts.enabled = bool(self.voice_var.get())
         self.settings["game_autonomy"] = bool(self.auto_var.get())
         self.settings["talk_when_idle"] = bool(self.free_var.get())
         self.settings["recognize_people"] = bool(self.people_var.get())
