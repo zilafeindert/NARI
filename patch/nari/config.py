@@ -53,7 +53,8 @@ def load_settings() -> dict:
         "update_check_delay_seconds": 3,
         "microphone_device": None,
         "learning_enabled": True,
-        "learning_exploration": 0.22,
+        "learning_exploration": 0.08,
+        "performance_profile_version": 3,
     }
     if SETTINGS_FILE.exists():
         try:
@@ -62,6 +63,20 @@ def load_settings() -> dict:
                 base.update(stored)
         except Exception:
             pass
+    # Migración de rendimiento: reemplaza ajustes heredados lentos por el
+    # perfil de baja latencia de NARI, una sola vez.
+    try:
+        if int(base.get("performance_profile_version", 0) or 0) < 3:
+            base["screen_fps"] = 20
+            base["vision_interval"] = 0.18
+            base["game_analysis_width"] = 640
+            base["game_inference_fps"] = 5.0
+            base["game_max_actions"] = 1
+            base["learning_exploration"] = 0.08
+            base["performance_profile_version"] = 3
+    except Exception:
+        base["performance_profile_version"] = 3
+
     # Never retain an empty repo after an upgrade.
     if not str(base.get("github_repo", "")).strip():
         base["github_repo"] = OFFICIAL_UPDATE_REPO
