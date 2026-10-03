@@ -38,6 +38,13 @@ class Memory:
         CREATE TABLE IF NOT EXISTS self_state(key TEXT PRIMARY KEY,value REAL);
         CREATE TABLE IF NOT EXISTS drives(name TEXT PRIMARY KEY,score REAL DEFAULT 0,reason TEXT DEFAULT '');
         CREATE TABLE IF NOT EXISTS private_notes(id INTEGER PRIMARY KEY,text TEXT,created REAL DEFAULT (strftime('%s','now')));
+        CREATE TABLE IF NOT EXISTS chat_messages(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            speaker TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created REAL NOT NULL DEFAULT (strftime('%s','now'))
+        );
         """)
         self._ensure_schema()
         defaults={"mood":0.15,"energy":0.8,"curiosity":0.55,"confidence":0.4,"social":0.35,"stress":0.0,"playfulness":0.6,"attachment":0.2}
@@ -97,6 +104,29 @@ class Memory:
 
     def recent_episodes(self,limit=5):
         return [dict(r) for r in self.db.execute("SELECT * FROM episodes ORDER BY created DESC LIMIT ?",(int(limit),))]
+
+    def add_chat_message(self, role, speaker, text):
+        text=str(text or "").strip()
+        if not text:
+            return
+        self.db.execute(
+            "INSERT INTO chat_messages(role,speaker,text) VALUES(?,?,?)",
+            (str(role),str(speaker),text)
+        )
+        self.db.commit()
+
+    def chat_history(self, limit=None):
+        if limit is None:
+            rows=self.db.execute(
+                "SELECT id,role,speaker,text,created FROM chat_messages ORDER BY id"
+            ).fetchall()
+        else:
+            rows=self.db.execute(
+                "SELECT id,role,speaker,text,created FROM chat_messages ORDER BY id DESC LIMIT ?",
+                (int(limit),)
+            ).fetchall()
+            rows=list(reversed(rows))
+        return [dict(r) for r in rows]
 
     def private_notes(self,limit=20):
         return [r["text"] for r in self.db.execute("SELECT text FROM private_notes ORDER BY created DESC LIMIT ?",(int(limit),))]
