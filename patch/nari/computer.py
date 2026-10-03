@@ -139,6 +139,7 @@ class Computer:
     def find_game(self, profile="generic"):
         keywords = {
             "roblox":["roblox"],
+            "jjs":["roblox","jujutsu shenanigans"],
             "limbus":["limbus company","limbus"],
             "generic":["roblox","limbus company","limbus"]
         }.get(profile, [])
@@ -326,6 +327,25 @@ class Computer:
         t = str(action.get("type", "")).lower()
 
         try:
+            if t == "m1":
+                self._mouse_button("left", True)
+                try:
+                    time.sleep(max(0.025, min(0.16, float(action.get("seconds", 0.055) or 0.055))))
+                finally:
+                    self._mouse_button("left", False)
+            elif t == "block":
+                key = "f"
+                self._key_down(key)
+                try:
+                    time.sleep(max(0.08, min(1.20, float(action.get("seconds", 0.35) or 0.35))))
+                finally:
+                    self._key_up(key)
+            elif t == "double_tap_w":
+                self._key_down("w")
+                self._key_up("w")
+                time.sleep(0.07)
+                self._key_down("w")
+                self._key_up("w")
             if t == "press":
                 key = str(action.get("key", ""))
                 self._key_down(key)
