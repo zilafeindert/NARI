@@ -6,6 +6,7 @@ import threading
 import requests
 from .config import OLLAMA_URL, load_settings
 from .personality import prompt_for, random_micro_shift
+from .learner import GameLearner
 
 GAME_PROFILES = {
     "generic": "Entorno interactivo generico. Observa el fotograma y decide una accion util.",
@@ -31,6 +32,7 @@ class Agent:
         self.stop_event = threading.Event()
         self._models_cache = []
         self._models_cache_ts = 0.0
+        self.game_learner = GameLearner(self.memory.path)
 
     def set_settings(self, settings):
         self.settings = settings or {}
