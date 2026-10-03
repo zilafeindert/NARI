@@ -134,6 +134,8 @@ class VoiceListener:
     def _cb(self,indata,frames,time_info,status):
         if not self.running: return
         try:
+            if status:
+                self.on_status("⚠️ Audio: "+str(status)[:140])
             raw=bytes(indata)
             self.last_audio_time=time.monotonic()
             try:
@@ -234,6 +236,9 @@ class VoiceListener:
                             callback=self._cb,
                             device=device,
                         )
+                        # Arranque explícito: evita depender del valor por defecto de
+                        # sounddevice y garantiza que el callback empiece a recibir audio.
+                        stream.start()
                         self.device=int(device)
                         return stream, int(rate), str(info.get("name",device))
                     except Exception as exc:
