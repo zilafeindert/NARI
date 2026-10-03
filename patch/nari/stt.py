@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, queue, threading, time, difflib
+import json, queue, threading, time, difflib, shutil, tempfile, zipfile, requests
 from pathlib import Path
 import numpy as np
 
@@ -32,11 +32,60 @@ class VoiceListener:
     def set_ignore(self, value):
         self.ignore=bool(value)
 
+    def _ensure_model(self):
+        if self.model_dir.exists():
+            # Un modelo Vosk válido contiene al menos alguno de estos directorios.
+            names={p.name for p in self.model_dir.iterdir() if p.is_dir()}
+            if {"am","conf","graph"} & names:
+                return
+
+        url="https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip"
+        parent=self.model_dir.parent
+        parent.mkdir(parents=True,exist_ok=True)
+        tmp=Path(tempfile.mkdtemp(prefix="nari_vosk_"))
+        archive=tmp/"model.zip"
+        extract=tmp/"extract"
+        try:
+            self.on_status("🎙 Descargando modelo de voz en español (~39 MB)…")
+            with requests.get(
+                url,
+                stream=True,
+                timeout=120,
+                headers={"User-Agent":"NARI-Vosk-Bootstrap/5.2.10"},
+            ) as response:
+                response.raise_for_status()
+                with archive.open("wb") as fh:
+                    for chunk in response.iter_content(1024*1024):
+                        if chunk:
+                            fh.write(chunk)
+
+            with zipfile.ZipFile(archive) as zf:
+                bad=zf.testzip()
+                if bad:
+                    raise RuntimeError("ZIP del modelo dañado: "+bad)
+                zf.extractall(extract)
+
+            candidates=[p for p in extract.iterdir() if p.is_dir()]
+            if not candidates:
+                raise RuntimeError("El ZIP no contiene una carpeta de modelo.")
+
+            source=next(
+                (p for p in candidates if p.name=="vosk-model-small-es-0.42"),
+                candidates[0],
+            )
+            if self.model_dir.exists():
+                shutil.rmtree(self.model_dir,ignore_errors=True)
+            shutil.copytree(source,self.model_dir)
+            self.on_status("✅ Modelo de voz instalado automáticamente.")
+        finally:
+            shutil.rmtree(tmp,ignore_errors=True)
+
+
     def start(self):
         if self.running: return
         if sd is None: raise RuntimeError("sounddevice no esta instalado")
         if Model is None: raise RuntimeError("Vosk no esta instalado")
-        if not self.model_dir.exists(): raise FileNotFoundError(f"No existe el modelo de voz: {self.model_dir}")
+        self._ensure_model()
 
         try:
             if self.device is None:
