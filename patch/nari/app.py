@@ -668,19 +668,13 @@ class NariApp:
 
             state = self.agent.game_state_key(frame, profile) if self.learning_enabled else ""
 
-            # Evalua la accion anterior antes de pedir una nueva.
+            # El cambio visual bruto se conserva como señal, pero no se usa
+            # directamente para entrenar: la vision debe juzgar si la accion
+            # realmente ayudo al objetivo.
+            raw_reward = 0.0
             reward = 0.0
             if previous_action is not None and previous_frame is not None:
-                reward = self.agent.game_learner.frame_reward(previous_frame, frame)
-                if self.learning_enabled:
-                    try:
-                        self.agent.game_record(profile, previous_state, previous_action, reward, "closed_loop", "resultado visual")
-                    except Exception:
-                        pass
-                try:
-                    self.agent.game_feedback(previous_observation, previous_action, reward, previous_confidence, previous_note, previous_goal_state)
-                except Exception:
-                    pass
+                raw_reward = self.agent.game_learner.frame_reward(previous_frame, frame)
 
             temporal = max(1, min(4, int(self.settings.get("temporal_frames", 3))))
             imgs, latest = self.screen.image_bytes(temporal, max_width=int(self.settings.get("game_analysis_width", 768)))
@@ -693,6 +687,41 @@ class NariApp:
                 result = self.agent.vision(goal, imgs, profile=profile, previous_action=previous_label, state_key=state)
             except Exception as exc:
                 result = {"actions": [], "reply": "", "error": str(exc), "confidence": 0.0, "observation": ""}
+
+            # Recompensa estricta para la accion anterior.
+            if previous_action is not None:
+                previous_label = self.agent.game_learner.action_key(previous_action)
+                recent_keys = self.agent.game_brain.recent_keys(4)
+                repeat_count = 0
+                for item in reversed(recent_keys):
+                    if item == previous_label:
+                        repeat_count += 1
+                    else:
+                        break
+                reward = self.agent.game_strict_reward(
+                    raw_reward,
+                    previous_action,
+                    result,
+                    repeat_count,
+                    getattr(self.agent.game_brain, "no_progress_count", 0),
+                )
+                if self.learning_enabled:
+                    try:
+                        self.agent.game_record(
+                            profile, previous_state, previous_action, reward,
+                            "strict_closed_loop",
+                            f"raw={raw_reward:+.2f}; effect={float(result.get('action_effect',0.0) or 0.0):+.2f}; "
+                            f"progress={float(result.get('progress_delta',0.0) or 0.0):+.2f}",
+                        )
+                    except Exception:
+                        pass
+                try:
+                    self.agent.game_feedback(
+                        previous_observation, previous_action, reward,
+                        previous_confidence, previous_note, previous_goal_state
+                    )
+                except Exception:
+                    pass
 
             candidates = [
                 x for x in (result.get("actions") or [])
@@ -725,7 +754,7 @@ class NariApp:
             stats = self.agent.game_stats(profile) if self.learning_enabled else {"experiences":0,"avg_reward":0.0}
             status_text = (
                 f"ACTIVO • {profile} • ciclo {self.game_cycle} • accion: {decision} • "
-                f"confianza {confidence:.2f} • Δvisual {reward:+.2f} • {source}"
+                f"confianza {confidence:.2f} • Δrecompensa {reward:+.2f} • visual {raw_reward:+.2f} • {source}"
             )
             self.root.after(0, lambda s=status_text: self.game_status.set(s))
 
