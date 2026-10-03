@@ -107,19 +107,98 @@ class VoiceListener:
         except Exception:
             return ""
 
-    def _loop(self):
+    def _input_candidates(self):
+        if sd is None:
+            return []
+        candidates=[]
+        if self.device is not None:
+            try:
+                idx=int(self.device)
+                if idx>=0:
+                    candidates.append(idx)
+            except Exception:
+                pass
         try:
-            kwargs={
-                "samplerate":16000,
-                "blocksize":1600,
-                "dtype":"int16",
-                "channels":1,
-                "callback":self._cb,
-            }
-            if self.device is not None: kwargs["device"]=self.device
+            default_in=sd.default.device[0]
+            if default_in is not None and int(default_in)>=0 and int(default_in) not in candidates:
+                candidates.append(int(default_in))
+        except Exception:
+            pass
+        try:
+            for i,d in enumerate(sd.query_devices()):
+                if int(d.get("max_input_channels",0) or 0)>0 and i not in candidates:
+                    candidates.append(i)
+        except Exception:
+            pass
+        return candidates
 
-            with sd.RawInputStream(**kwargs):
-                idle_rec=KaldiRecognizer(self.model,16000)
+    def _open_stream(self):
+        errors=[]
+        for device in self._input_candidates():
+            try:
+                info=sd.query_devices(device)
+                default_rate=float(info.get("default_samplerate",16000) or 16000)
+                rates=[]
+                for rate in (16000, int(round(default_rate)), 48000, 44100):
+                    if rate>0 and rate not in rates:
+                        rates.append(rate)
+                for rate in rates:
+                    try:
+                        stream=sd.RawInputStream(
+                            samplerate=rate,
+                            blocksize=max(800,int(rate/10)),
+                            dtype="int16",
+                            channels=1,
+                            callback=self._cb,
+                            device=device,
+                        )
+                        self.device=int(device)
+                        return stream, int(rate), str(info.get("name",device))
+                    except Exception as exc:
+                        errors.append(f"{info.get('name',device)} @ {rate}Hz: {exc}")
+            except Exception as exc:
+                errors.append(f"dispositivo {device}: {exc}")
+        detail=" | ".join(errors[-5:])
+        raise RuntimeError("No pude abrir ningún micrófono." + ((" " + detail) if detail else ""))
+
+    @staticmethod
+    def _resample(data, source_rate, target_rate=16000):
+        if int(source_rate)==int(target_rate):
+            return data
+        try:
+            src=np.frombuffer(data,dtype=np.int16)
+            if src.size==0:
+                return data
+            n=max(1,int(round(src.size*float(target_rate)/float(source_rate))))
+            x=np.linspace(0,1,src.size,endpoint=False)
+            xp=np.linspace(0,1,n,endpoint=False)
+            out=np.interp(xp,x,src.astype(np.float32))
+            return np.clip(out,-32768,32767).astype(np.int16).tobytes()
+        except Exception:
+            return data
+
+    def device_summary(self):
+        if sd is None:
+            return []
+        out=[]
+        try:
+            for i,d in enumerate(sd.query_devices()):
+                if int(d.get("max_input_channels",0) or 0)>0:
+                    out.append({
+                        "id": i,
+                        "name": str(d.get("name","")),
+                        "default_samplerate": float(d.get("default_samplerate",0) or 0),
+                    })
+        except Exception:
+            pass
+        return out
+
+    def _loop(self):
+        stream=None
+        try:
+            stream, actual_rate, device_name = self._open_stream()
+            self.on_status(f"🎙 Mic activo • {device_name} • {actual_rate} Hz")
+            idle_rec=KaldiRecognizer(self.model,16000)
                 command_rec=None
                 active=False
                 started=0.0
@@ -130,6 +209,8 @@ class VoiceListener:
                         data=self.q.get(timeout=0.15)
                     except queue.Empty:
                         continue
+
+                    data=self._resample(data, actual_rate, 16000)
 
                     if self.ignore:
                         continue
@@ -179,3 +260,9 @@ class VoiceListener:
         except Exception as exc:
             self.on_status("❌ Voz: "+str(exc))
             self.running=False
+        finally:
+            if stream is not None:
+                try: stream.stop()
+                except Exception: pass
+                try: stream.close()
+                except Exception: pass
