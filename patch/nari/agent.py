@@ -96,8 +96,14 @@ class Agent:
     def _pick_vision_model(self):
         configured = str(self.settings.get("vision_model", "qwen3-vl:2b")).strip()
         models = self._available_models()
-        if not models or configured in models:
-            return configured
+        if models:
+            # Si esta disponible una variante mas grande de la misma familia,
+            # la usamos para decisiones visuales mas precisas sin romper equipos
+            # que solo tengan el modelo configurado.
+            if configured == "qwen3-vl:2b" and "qwen3-vl:4b" in models:
+                return "qwen3-vl:4b"
+            if configured in models:
+                return configured
         hints = ("vl", "vision", "llava", "minicpm-v")
         for m in models:
             if any(h in m.lower() for h in hints):
@@ -188,7 +194,7 @@ class Agent:
             "reply": str(result.get("reply", result.get("message", ""))).strip(),
             "actions": actions,
         }
-        for key in ("reward", "progress", "observation", "done", "confidence", "plan", "decision_note", "mode"):
+        for key in ("reward", "progress", "observation", "goal_state", "done", "confidence", "plan", "decision_note", "mode"):
             if key in result:
                 try:
                     if key in {"reward", "progress", "confidence"}:
@@ -249,11 +255,11 @@ class Agent:
         return self._apply_memory_actions(result)
 
     def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
-        """Percepcion + decision ejecutiva cerrada para juegos.
+        """Percepcion visual + deliberacion de juego.
 
-        La respuesta del VLM contiene solo un resumen operativo y una accion
-        primaria. La aplicacion ejecuta esa unica accion, observa el resultado
-        y vuelve a decidir; no se ejecutan colas obsoletas de acciones.
+        El VLM puede proponer una primera accion y una alternativa. El ejecutivo
+        local elige una sola y bloquea bucles de repeticion. El razonamiento
+        extendido, cuando Ollama lo devuelve, se mantiene fuera de la interfaz.
         """
         model = self._pick_vision_model()
         brain = self.game_brain
@@ -261,102 +267,81 @@ class Agent:
 
         if profile == "roblox":
             controls = (
-                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT+W correr; "
-                "E/Q/R/F/1/2/3 son contextuales; click izquierdo para UI; "
-                "toggle_shift_lock usa Shift y solo debe hacerse cuando aporte control; "
-                "camera_turn gira con movimiento relativo; con Shift Lock usa el movimiento "
-                "centrado, y sin Shift Lock usa RMB. CTRL no es un 'Control Lock' universal: "
-                "usalo solo si la interfaz o la experiencia lo muestra necesario."
+                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT+W correr; E/Q/R/F/1/2/3 "
+                "son acciones contextuales; click izquierdo para UI; Shift puede alternar "
+                "Shift Lock cuando la experiencia lo permite; camera_turn usa movimiento "
+                "relativo y debe ser pequeno; no existe un Control Lock universal de Roblox."
             )
         else:
             controls = GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
 
-        history = brain.history_text(6)
-        stuck = f"{brain.stuck_count}"
-        no_progress = f"{brain.no_progress_count}"
-
         system = (
-            "Eres el controlador autonomo de un videojuego en tiempo real. "
-            "TIENES que tomar una decision cada vez que recibes un fotograma. "
-            "Piensa internamente antes de responder, pero NO escribas tu razonamiento "
-            "interno ni una cadena de pensamiento. Solo entrega un resumen breve de la "
-            "decision. Trabaja en ciclo cerrado: observar -> elegir una accion pequena -> "
-            "ejecutar -> volver a observar. Nunca planifiques una cadena larga de acciones "
-            "porque la imagen quedara obsoleta. "
-            "Devuelve SOLO JSON valido con estos campos: "
-            '{"observation":"texto corto","goal_state":"texto corto","decision_note":"texto corto",'
-            '"confidence":0.0,"actions":[{"type":"..."}]}. '
-            "actions debe contener EXACTAMENTE 1 accion ejecutable. "
+            "Eres la inteligencia de control de un videojuego en tiempo real. "
+            "Analiza el fotograma mas reciente y, cuando se entreguen varios, comparalos "
+            "en orden temporal para detectar movimiento, cambios de camara y progreso. "
+            "Antes de responder, delibera internamente sobre objetivo, obstaculo y riesgo. "
+            "NO imprimas esa cadena de pensamiento. Entrega solo un resumen operativo. "
+            "Tu trabajo es tomar decisiones utiles, variadas y verificables; no repitas "
+            "automaticamente la ultima accion. "
+            "Devuelve SOLO JSON valido: "
+            '{"observation":"...","goal_state":"...","decision_note":"...","confidence":0.0,'
+            '"actions":[{"type":"..."},{"type":"..."}]}. '
+            "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
+            "el controlador local ejecutara SOLO UNA. "
             "Acciones permitidas: hold(key=w/a/s/d,seconds), keys(keys=[shift,w],seconds), "
             "press(key=space/e/q/r/f/1/2/3), camera_turn(dx,dy,seconds), "
             "camera_drag(dx,dy,seconds), toggle_shift_lock, click(x,y,normalized=true), wait(seconds). "
-            "Preferir microacciones precisas: movimiento 0.20-0.55 s y camara 0.06-0.16 s. "
-            "No cambies W/A/D sin una razon visible. Si una accion no produjo progreso, "
-            "cambia el enfoque: reorienta camara, usa otra direccion o prueba una accion contextual. "
-            "Si la confianza es baja, espera o reobserva en vez de hacer clics aleatorios. "
-            "Para UI, estima las coordenadas en escala 0..1000 y solo haz click si ves claramente "
-            "el objetivo. Para la camara NO uses click izquierdo. "
+            "Haz microacciones: mover 0.18-0.58 s; camara 0.06-0.16 s; giros pequenos. "
+            "No uses un giro grande para buscar a ciegas. Para seguir un objetivo visible, "
+            "elige la direccion que lo acerque. Si no hay objetivo visible, explora: mover, "
+            "reorientar, cambiar lateral, saltar o interactuar de forma controlada. "
+            "Despues de una accion sin progreso, la siguiente decision debe ser diferente "
+            "salvo que exista evidencia clara de que repetirla es correcto. "
+            "No hagas clic si no identificas un elemento interactivo. "
             + controls +
-            "\nOBJETIVO ACTUAL: " + str(goal) +
+            "\nOBJETIVO: " + str(goal) +
             "\nACCION ANTERIOR: " + (previous_action or "ninguna") +
-            "\nULTIMA OBSERVACION: " + (brain.last_observation or "ninguna") +
-            "\nACCIONES RECIENTES: " + history +
-            "\nACCIONES SIN PROGRESO: " + no_progress +
-            "\nINDICE DE ATASCAMIENTO: " + stuck +
-            "\nAPRENDIZAJE PERSISTENTE: " + hint[:500]
+            "\nHISTORIAL OPERATIVO: " + brain.history_text(8) +
+            "\nSIN PROGRESO: " + str(brain.no_progress_count) +
+            "\nATASCO: " + str(brain.stuck_count) +
+            "\nMEMORIA DE APRENDIZAJE: " + hint[:600]
         )
 
         msg = {
-            "role": "user",
-            "content": (
-                "Analiza el fotograma actual. Identifica donde esta el jugador, "
-                "que objetivo visible conviene perseguir y cual es la UNICA accion "
-                "mas util ahora. Prioriza precision sobre velocidad."
+            "role":"user",
+            "content":(
+                "Observa las imagenes. Determina que intenta conseguir el jugador, "
+                "que elemento visible es relevante y propone hasta dos microacciones. "
+                "La primera debe ser la mejor; la segunda una alternativa util y distinta."
             ),
-            "images": images_b64,
+            "images":images_b64,
         }
 
         try:
-            raw = self._call(
-                [{"role": "system", "content": system}, msg],
-                model,
-                4.5,
-                96,
-                1024,
-                think=True,
+            raw=self._call(
+                [{"role":"system","content":system},msg],
+                model, 8.0, 128, 1536, think=True
             )
-            result = self._normalize(self._parse(raw))
+            result=self._normalize(self._parse(raw))
 
-            # Algunos VLM omiten actions pero devuelven una accion directa.
-            if not result.get("actions"):
-                direct = result.get("action")
-                if isinstance(direct, dict):
-                    result["actions"] = [direct]
-
-            fixed = []
-            for action in (result.get("actions") or [])[:1]:
-                fixed.append(brain.validate_action(action))
-            if fixed:
-                result["actions"] = fixed
-            else:
-                result["actions"] = []
-
-            result["actions"] = result["actions"][:1]
-            result["reply"] = Agent._clean_visible_reply(result.get("reply", ""))
-            result["model"] = model
+            fixed=[]
+            for action in (result.get("actions") or [])[:2]:
+                if isinstance(action,dict):
+                    fixed.append(brain.validate_action(action))
+            result["actions"]=fixed[:2]
+            result["reply"]=Agent._clean_visible_reply(result.get("reply",""))
+            result["model"]=model
             return result
         except Exception as exc:
-            # El fallback es deliberadamente pequeno y determinista; se usa
-            # solo cuando la percepcion no pudo responder.
             return {
-                "reply": "",
-                "actions": [brain.fallback(0)] if profile == "roblox" else [],
-                "observation": "",
-                "plan": "fallback",
-                "decision_note": "La percepcion no respondio; se usa una accion segura de recuperacion.",
-                "confidence": 0.0,
-                "error": str(exc),
-                "model": model,
+                "reply":"",
+                "actions":[],
+                "observation":"",
+                "goal_state":"",
+                "decision_note":"fallo de percepcion; usar recuperacion",
+                "confidence":0.0,
+                "error":str(exc),
+                "model":model,
             }
 
     def autonomous_reflection(self):
