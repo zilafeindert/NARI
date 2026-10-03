@@ -151,8 +151,17 @@ class VoiceListener:
     @staticmethod
     def _result(rec, partial=False):
         try:
-            obj=json.loads(rec.PartialResult() if partial else rec.FinalResult())
+            raw = rec.PartialResult() if partial else rec.Result()
+            obj = json.loads(raw)
             return " ".join(str(obj.get("partial" if partial else "text","")).split()).lower()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _final_result(rec):
+        try:
+            obj = json.loads(rec.FinalResult())
+            return " ".join(str(obj.get("text","")).split()).lower()
         except Exception:
             return ""
 
@@ -249,10 +258,12 @@ class VoiceListener:
             self.on_status(f"🎙 Mic activo • {device_name} • {actual_rate} Hz")
             idle_rec=KaldiRecognizer(self.model,16000)
             command_rec=None
+            command_parts=[]
             active=False
             started=0.0
             last_speech=0.0
             last_ui=0.0
+
             while self.running:
                 try:
                     data=self.q.get(timeout=0.15)
@@ -270,45 +281,78 @@ class VoiceListener:
                     accepted=idle_rec.AcceptWaveform(data)
                     final=self._result(idle_rec,False) if accepted else ""
                     partial=self._result(idle_rec,True) if not accepted else ""
-                    if partial and now-last_ui>0.35:
-                        self.on_status(f"🎙 {partial[-80:]}")
+
+                    if final:
+                        self.on_status(f"🎙 Escuché: {final[-90:]}")
+                    elif partial and now-last_ui>0.35:
+                        self.on_status(f"🎙 …{partial[-80:]}")
                         last_ui=now
-                    candidate=final or partial
+
+                    # El reconocimiento de palabra de activación se comprueba
+                    # tanto en segmentos finalizados como en parciales.
+                    candidate=" ".join(x for x in (final,partial) if x).strip()
                     if self._contains_wake(candidate):
                         active=True
                         started=now
                         last_speech=now
+                        command_parts=[]
                         command_rec=KaldiRecognizer(self.model,16000)
+
+                        # Conserva palabras pronunciadas junto a "NARI" en el mismo bloque.
                         command_rec.AcceptWaveform(data)
-                        command_text=self._remove_wake(self._result(command_rec,True))
-                        if command_text:
+                        carried_final=self._result(command_rec,False)
+                        carried_partial=self._result(command_rec,True)
+                        carried=" ".join(x for x in (carried_final,carried_partial) if x)
+                        carried=self._remove_wake(carried)
+                        if carried:
+                            command_parts.append(carried)
                             last_speech=now
+
                         self.on_status("🎙 NARI activada • habla ahora")
                         idle_rec=KaldiRecognizer(self.model,16000)
                     continue
 
-                command_rec.AcceptWaveform(data)
-                partial=self._remove_wake(self._result(command_rec,True))
-                if partial:
-                    last_speech=now
-                    if now-last_ui>0.35:
-                        self.on_status(f"🗣 {partial[-80:]}")
-                        last_ui=now
+                accepted=command_rec.AcceptWaveform(data)
+                if accepted:
+                    final=self._result(command_rec,False)
+                    if final:
+                        cleaned=self._remove_wake(final)
+                        if cleaned:
+                            command_parts.append(cleaned)
+                            last_speech=now
+                            self.on_status(f"🗣 {cleaned[-90:]}")
+                else:
+                    partial=self._remove_wake(self._result(command_rec,True))
+                    if partial:
+                        last_speech=now
+                        if now-last_ui>0.25:
+                            self.on_status(f"🗣 {partial[-90:]}")
+                            last_ui=now
 
-                finished=(now-started)>=self.max_seconds or (last_speech>0 and now-last_speech>=self.silence_seconds)
+                finished=(
+                    (now-started)>=self.max_seconds
+                    or (last_speech>0 and now-last_speech>=self.silence_seconds)
+                )
+
                 if finished:
-                    text=self._remove_wake(self._result(command_rec,False))
+                    tail=self._remove_wake(self._final_result(command_rec))
+                    if tail:
+                        command_parts.append(tail)
+
+                    text=" ".join(x for x in command_parts if x).strip()
                     active=False
                     command_rec=None
+                    command_parts=[]
                     idle_rec=KaldiRecognizer(self.model,16000)
+
                     if text:
+                        self.on_status(f"✅ Entendí: {text[:120]}")
                         self.on_command(text)
                     else:
-                        self.on_status("✨ Sí, aquí estoy")
+                        self.on_status("✨ No entendí la frase. Vuelve a decir «NARI» y luego habla.")
+
                     self.on_status(f'🎙 Escuchando «{self.wake_word}»')
-        except Exception as exc:
-            self.on_status("❌ Voz: "+str(exc))
-            self.running=False
+
         finally:
             if stream is not None:
                 try: stream.stop()
