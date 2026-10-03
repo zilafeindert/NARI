@@ -280,7 +280,8 @@ class Agent:
                 "Busca al rival, acerca distancia con movimiento/dash, confirma impacto y "
                 "alterna ataque, defensa y reposicionamiento. Si el rival esta fuera del centro "
                 "(target_center_x < 0.40 o > 0.60), gira la camara hacia el rival con camera_turn "
-                "en vez de esperar otro ciclo. En JJS el giro usa RMB y debe ser corto pero visible; "
+                "en vez de esperar otro ciclo. En JJS el giro usa RMB y debe ser corto pero visible. "
+                "Si el giro con mouse no produce cambio, prueba camera_key_turn con izquierda/derecha; "
                 "no gires si no hay objetivo."
             )
         elif profile == "roblox":
@@ -309,7 +310,8 @@ class Agent:
             "el controlador local ejecutara SOLO UNA. "
             "Acciones permitidas: hold(key=w/a/s/d,seconds), block(seconds), m1(seconds), "
             "double_tap_w, keys(keys=[shift,w],seconds), press(key=space/e/q/r/f/g/1/2/3/4), "
-            "camera_turn(dx,dy,seconds), camera_drag(dx,dy,seconds), toggle_shift_lock, "
+            "camera_turn(dx,dy,seconds), camera_drag(dx,dy,seconds), camera_key_turn(dx,dy,seconds), "
+            "toggle_shift_lock, "
             "click(x,y,normalized=true), wait(seconds). "
             "Haz microacciones: mover 0.10-0.38 s; camara 0.035-0.10 s; giros cortos y visibles. "
             "No uses un giro grande para buscar a ciegas. Para seguir un objetivo visible, "
