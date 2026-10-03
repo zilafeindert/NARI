@@ -161,7 +161,8 @@ class NariApp:
             ttk.Button(sidebar, text=name, command=cmd).pack(fill="x", padx=10, pady=4)
         ttk.Separator(sidebar).pack(fill="x", padx=14, pady=14)
         ttk.Checkbutton(sidebar, text="Voz", variable=self.voice_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
-        ttk.Button(sidebar, text="Probar micrófono", command=self._test_microphone).pack(fill="x", padx=10, pady=(0,5))
+        ttk.Button(sidebar, text="Probar micrófono", command=self._test_microphone).pack(fill="x", padx=10, pady=(0,3))
+        ttk.Button(sidebar, text="🎙 HABLAR AHORA", command=self._talk_now).pack(fill="x", padx=10, pady=(0,5))
         ttk.Checkbutton(sidebar, text="Autonomía PC", variable=self.auto_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
         ttk.Checkbutton(sidebar, text="Modo libre", variable=self.free_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
         ttk.Checkbutton(sidebar, text="Reconocer personas", variable=self.people_var, command=self._save_toggles).pack(anchor="w", padx=14, pady=5)
@@ -471,6 +472,13 @@ class NariApp:
             if self.voice_var.get(): self.tts.say("¿Mhm? Aquí estoy ✨")
             return
         self._run_agent(text, from_voice=True)
+
+    def _talk_now(self):
+        try:
+            self.listener.arm_command(8.0)
+            self._status("🎙 Habla durante unos segundos…")
+        except Exception as exc:
+            self._status("❌ Voz directa: "+str(exc)[:150])
 
     def _test_microphone(self):
         try:
