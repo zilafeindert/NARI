@@ -59,6 +59,7 @@ class NariApp:
             self.settings.get("max_utterance_seconds", 12.0),
             self._voice_command,
             self._status,
+            self.settings.get("microphone_device"),
         )
         self.tts.on_speaking = lambda value: self.listener.set_ignore(value)
 
@@ -491,7 +492,12 @@ class NariApp:
         self.game_status.set(msg)
 
     def stop_game(self):
-        self.game_running=False; self.computer.stop(); self.computer.clear_stop(); self.game_status.set("Detenido"); self._status("🎮 Juego detenido")
+        self.game_running=False
+        self.computer.stop()
+        self.computer.clear_stop()
+        self.computer.clear_target()
+        self.game_status.set("Detenido")
+        self._status("🎮 Juego detenido")
 
     def _game_loop(self,profile:str):
         goal=self.game_goal.get().strip() or "Explora el juego, aprende los controles y actúa de forma continua."
