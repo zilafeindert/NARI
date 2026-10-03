@@ -672,6 +672,11 @@ class NariApp:
 
     def _game_loop(self, profile: str):
         goal = self.game_goal.get().strip() or "Explora el juego, aprende los controles y completa objetivos visibles."
+        if profile == "jjs":
+            goal += (
+                "\nPRIORIDAD JJS: localiza el Dummy de entrenamiento, "
+                "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
+            )
         previous_action = None
         previous_state = ""
         previous_frame = None
