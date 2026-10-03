@@ -1,0 +1,6 @@
+NARI 5.5.6
+
+- El detector local de JJS busca el marcador verde cuadrado del Dummy para fijar su posición sin depender de que el VLM lo nombre correctamente.
+- El apuntado usa coordenadas X/Y del objetivo para corregir también altura de cámara.
+- Cuando el Dummy está centrado y lejos, NARI se aproxima; cuando está a distancia, prioriza M1.
+- La percepción del juego sigue trabajando sobre el viewport recortado de la ventana de Roblox.
