@@ -32,6 +32,7 @@ jobs:
           cp -R patch/. "build/NARI-${VERSION}/"
           cd "build/NARI-${VERSION}"
           printf "%s\n" "$VERSION" > NARI_BUILD_VERSION.txt
+          python -m compileall -q nari
           zip -qr "../NARI-${VERSION}.zip" .
           cd ../..
 
