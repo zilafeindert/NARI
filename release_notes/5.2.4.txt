@@ -1,0 +1,7 @@
+NARI 5.2.4
+
+- Chat visual estilo Discord: servidores/canales, cabecera #general, mensajes con avatar, nombre y hora, y compositor inferior.
+- Chat local mas rapido: /no_think, menos contexto y menos tokens de salida.
+- Deteccion automatica del modelo local disponible en Ollama, con fallback.
+- Juego: JUGAR activa autonomia de juego, conserva el foco de la ventana y mantiene movimiento cuando el modelo visual no devuelve una accion.
+- Reparacion de esquemas SQLite legacy para no romper Estado/Desarrollador.
