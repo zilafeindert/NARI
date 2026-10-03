@@ -194,7 +194,7 @@ class Agent:
             "reply": str(result.get("reply", result.get("message", ""))).strip(),
             "actions": actions,
         }
-        for key in ("reward", "progress", "observation", "goal_state", "done", "confidence", "plan", "decision_note", "mode"):
+        for key in ("reward", "progress", "progress_delta", "action_effect", "observation", "goal_state", "done", "confidence", "plan", "decision_note", "mode"):
             if key in result:
                 try:
                     if key in {"reward", "progress", "confidence"}:
@@ -285,6 +285,7 @@ class Agent:
             "automaticamente la ultima accion. "
             "Devuelve SOLO JSON valido: "
             '{"observation":"...","goal_state":"...","decision_note":"...","confidence":0.0,'
+            '"action_effect":0.0,"progress_delta":0.0,'
             '"actions":[{"type":"..."},{"type":"..."}]}. '
             "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
             "el controlador local ejecutara SOLO UNA. "
@@ -312,7 +313,9 @@ class Agent:
             "content":(
                 "Observa las imagenes. Determina que intenta conseguir el jugador, "
                 "que elemento visible es relevante y propone hasta dos microacciones. "
-                "La primera debe ser la mejor; la segunda una alternativa util y distinta."
+                "La primera debe ser la mejor; la segunda una alternativa util y distinta. "
+                "Tambien evalua la accion anterior: action_effect=-1..1 indica si ayudo al objetivo; "
+                "progress_delta=-1..1 indica si el estado avanzo o retrocedio. Si no hubo accion anterior, usa 0."
             ),
             "images":images_b64,
         }
@@ -410,6 +413,17 @@ class Agent:
 
     def game_validate_action(self, action):
         return self.game_brain.validate_action(action)
+
+    def game_strict_reward(self, raw_visual_reward, action, result=None, repeat_count=0, stagnation=0):
+        result = result or {}
+        return self.game_learner.strict_reward(
+            raw_visual_reward,
+            action,
+            float(result.get("action_effect", 0.0) or 0.0),
+            float(result.get("progress_delta", 0.0) or 0.0),
+            int(repeat_count),
+            int(stagnation),
+        )
 
     def game_choose_action(self, actions, confidence=0.0, cycle=0, frame=None):
         # El ejecutivo local es la ultima barrera contra bucles de dos acciones.
