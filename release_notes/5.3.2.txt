@@ -1,0 +1,1 @@
+Corrección de sintaxis en game_brain.py que impedía iniciar NARI. Mantiene el sistema anti-bucle y control autónomo de juego de 5.3.1.
