@@ -84,6 +84,13 @@ class Computer:
     def clear_stop(self):
         self.stop_event = False
 
+    def release_all(self):
+        for key in ("w","a","s","d","shift","space","ctrl","alt"):
+            try:
+                self._key_up(key)
+            except Exception:
+                pass
+
     def clear_target(self):
         self.target_hwnd = None
         self.target_title = ""
