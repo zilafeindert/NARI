@@ -1,5 +1,6 @@
 from __future__ import annotations
 import threading,time
+from collections import deque
 from pathlib import Path
 import numpy as np
 from PIL import Image,ImageTk
@@ -10,7 +11,7 @@ except Exception: cv2=None
 
 class ScreenVideo:
     def __init__(self,fps=30,analysis_width=960):
-        self.fps=float(fps); self.analysis_width=int(analysis_width); self.running=False; self.latest_frame=None; self.lock=threading.Lock(); self.thread=None; self.sct=None
+        self.fps=float(fps); self.analysis_width=int(analysis_width); self.running=False; self.latest_frame=None; self.history=deque(maxlen=8); self.lock=threading.Lock(); self.thread=None; self.sct=None
     def start(self):
         if mss is None: raise RuntimeError("Falta mss")
         self.running=True; self.thread=threading.Thread(target=self._loop,daemon=True); self.thread.start()
@@ -23,20 +24,37 @@ class ScreenVideo:
             if self.analysis_width and frame.shape[1]>self.analysis_width:
                 ratio=self.analysis_width/frame.shape[1]
                 frame=cv2.resize(frame,(self.analysis_width,int(frame.shape[0]*ratio)),interpolation=cv2.INTER_AREA) if cv2 is not None else frame
-            with self.lock:self.latest_frame=frame
+            with self.lock:
+                self.latest_frame=frame
+                self.history.append((time.time(), frame.copy()))
             time.sleep(max(0,period-(time.perf_counter()-t)))
     def latest(self):
         with self.lock:return None if self.latest_frame is None else self.latest_frame.copy()
     def image_bytes(self,count=1,max_width=768):
-        frame=self.latest()
-        if frame is None:return [],None
-        im=Image.fromarray(frame).convert("RGB")
-        if max_width and im.width>int(max_width):
-            ratio=float(max_width)/float(im.width)
-            im=im.resize((int(max_width),max(1,int(im.height*ratio))),Image.Resampling.BILINEAR)
+        with self.lock:
+            rows=list(self.history)
+        if not rows:
+            return [],None
+
+        n=max(1,min(4,int(count or 1)))
+        if n==1:
+            selected=[rows[-1]]
+        else:
+            step=max(1,(len(rows)-1)//max(1,n-1))
+            idxs=[max(0,len(rows)-1-step*(n-1-i)) for i in range(n)]
+            selected=[rows[i] for i in idxs]
+
         import io,base64
-        b=io.BytesIO(); im.save(b,format="JPEG",quality=55,optimize=True)
-        return [base64.b64encode(b.getvalue()).decode()],time.time()
+        encoded=[]
+        for _,frame in selected:
+            im=Image.fromarray(frame).convert("RGB")
+            if max_width and im.width>int(max_width):
+                ratio=float(max_width)/float(im.width)
+                im=im.resize((int(max_width),max(1,int(im.height*ratio))),Image.Resampling.BILINEAR)
+            b=io.BytesIO()
+            im.save(b,format="JPEG",quality=60,optimize=True)
+            encoded.append(base64.b64encode(b.getvalue()).decode())
+        return encoded,rows[-1][0]
     def tk_image(self,max_w=790):
         f=self.latest()
         if f is None:return None
