@@ -10,6 +10,29 @@ import numpy as np
 
 
 DEFAULT_ACTIONS = {
+    "jjs": (
+        "hold_w",
+        "hold_a",
+        "hold_d",
+        "hold_s",
+        "m1",
+        "press_1",
+        "press_2",
+        "press_3",
+        "press_4",
+        "dash_q",
+        "block_f",
+        "special_r",
+        "awaken_g",
+        "double_tap_w",
+        "toggle_shift_lock",
+        "look_left",
+        "look_right",
+        "look_up",
+        "look_down",
+        "jump",
+        "wait",
+    ),
     "roblox": (
         "hold_w",
         "hold_a",
@@ -276,6 +299,18 @@ class GameLearner:
     @staticmethod
     def action_from_key(key: str, profile: str, cycle: int = 0) -> dict:
         key = str(key or "wait")
+        if key == "m1":
+            return {"type": "m1", "seconds": 0.055}
+        if key == "block_f":
+            return {"type": "block", "seconds": 0.35}
+        if key == "dash_q":
+            return {"type": "press", "key": "q"}
+        if key == "special_r":
+            return {"type": "press", "key": "r"}
+        if key == "awaken_g":
+            return {"type": "press", "key": "g"}
+        if key == "double_tap_w":
+            return {"type": "double_tap_w"}
         if key == "hold_w":
             return {"type": "hold", "key": "w", "seconds": 0.50}
         if key == "hold_a":
