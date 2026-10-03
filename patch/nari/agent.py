@@ -242,7 +242,10 @@ class Agent:
         system = (
             "/no_think\n"
             "Analiza solo lo visible y decide RAPIDO la siguiente accion util. "
-            "No expliques el razonamiento. " + self._context() + "\n\n" + ACTION_HINT +
+            "No expliques el razonamiento. Para Roblox, avanzar usa hold W/A/D durante un tramo "
+            "y girar la cámara usa OBLIGATORIAMENTE camera_drag (RMB mantenido + movimiento relativo). "
+            "No uses mouse_move_rel para girar la cámara. Evita wait salvo que realmente sea necesario. "
+            "No devuelvas código. " + self._context() + "\n\n" + ACTION_HINT +
             "\nPERFIL: " + GAME_PROFILES.get(profile, GAME_PROFILES["generic"]) +
             "\nOBJETIVO: " + str(goal) +
             "\nMEMORIA DE APRENDIZAJE: " + hint +
@@ -256,10 +259,39 @@ class Agent:
             "images": images_b64,
         }
         try:
-            return self._normalize(self._parse(self._call(
+            result = self._normalize(self._parse(self._call(
                 [{"role": "system", "content": system}, msg],
-                model, 8, 72, 1280
+                model, 6, 64, 1024
             )))
+            # En Roblox, mover cámara significa RMB + movimiento relativo.
+            if profile == "roblox":
+                fixed=[]
+                for action in result.get("actions", []):
+                    if not isinstance(action, dict):
+                        continue
+                    kind=str(action.get("type","")).lower()
+                    if kind == "mouse_move_rel":
+                        dx=int(float(action.get("dx",0) or 0))
+                        dy=int(float(action.get("dy",0) or 0))
+                        scale=3.3
+                        fixed.append({
+                            "type":"camera_drag",
+                            "dx":int(max(-650,min(650,round(dx*scale)))),
+                            "dy":int(max(-420,min(420,round(dy*scale)))),
+                            "seconds":0.16,
+                        })
+                    elif kind == "camera_drag":
+                        action["dx"]=int(max(-700,min(700,float(action.get("dx",0) or 0))))
+                        action["dy"]=int(max(-450,min(450,float(action.get("dy",0) or 0))))
+                        action["seconds"]=max(0.08,min(0.30,float(action.get("seconds",0.16))))
+                        fixed.append(action)
+                    elif kind == "hold" and str(action.get("key","")).lower() in {"w","a","d","s"}:
+                        action["seconds"]=max(0.35,min(1.0,float(action.get("seconds",0.60))))
+                        fixed.append(action)
+                    else:
+                        fixed.append(action)
+                result["actions"]=fixed
+            return result
         except Exception as exc:
             return {"reply": "", "actions": [], "error": str(exc), "model": model}
 
