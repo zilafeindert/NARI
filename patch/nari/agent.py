@@ -351,10 +351,20 @@ class Agent:
             # Control de baja latencia: usa solo los fotogramas mas recientes.
             vision_images = images_b64[-1:] if profile != "jjs" else images_b64[-2:]
             msg["images"] = vision_images
-            raw=self._call(
-                [{"role":"system","content":system},msg],
-                model, 5.5, 72, 1024, think=False
-            )
+            try:
+                raw=self._call(
+                    [{"role":"system","content":system},msg],
+                    model, 5.5, 72, 1024, think=False
+                )
+            except Exception as first_error:
+                # Recuperacion: algunos builds/modelos visuales fallan con varias
+                # imagenes. Reintenta una sola imagen antes de declarar perdida de percepcion.
+                msg["images"] = images_b64[-1:]
+                raw=self._call(
+                    [{"role":"system","content":system},msg],
+                    model, 4.0, 56, 896, think=False
+                )
+
             result=self._normalize(self._parse(raw))
 
             fixed=[]
