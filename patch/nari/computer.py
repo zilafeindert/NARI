@@ -293,6 +293,31 @@ class Computer:
         elif pyautogui:
             pyautogui.moveRel(dx,dy,duration=0)
 
+    def _center_cursor_in_target(self):
+        """Coloca el cursor dentro del viewport del juego antes de un RMB drag."""
+        if not IS_WINDOWS or not self.target_hwnd:
+            return False
+        try:
+            class POINT(ctypes.Structure):
+                _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+            rect = wintypes.RECT()
+            if not user32.GetClientRect(wintypes.HWND(self.target_hwnd), ctypes.byref(rect)):
+                return False
+
+            pt = POINT(
+                int((rect.left + rect.right) / 2),
+                int((rect.top + rect.bottom) / 2),
+            )
+            if not user32.ClientToScreen(
+                wintypes.HWND(self.target_hwnd), ctypes.byref(pt)
+            ):
+                return False
+
+            return bool(user32.SetCursorPos(int(pt.x), int(pt.y)))
+        except Exception:
+            return False
+
     def toggle_shift_lock(self):
         """Alterna el Shift Lock de Roblox cuando la experiencia lo permite."""
         self.keep_target_focused()
@@ -305,21 +330,27 @@ class Computer:
         """Gira la cámara con RMB, incluso si Shift Lock esta activo."""
         self.camera_drag(dx, dy, seconds)
 
-    def camera_drag(self, dx, dy=0, seconds=0.06):
+    def camera_drag(self, dx, dy=0, seconds=0.08):
         self.keep_target_focused()
-        self._mouse_button("right",True)
+        # Roblox necesita que el RMB se inicie dentro del viewport. El cursor
+        # puede haberse quedado encima de NARI, del chat o de otra ventana.
+        self._center_cursor_in_target()
+        self._mouse_button("right", True)
         try:
-            total=max(0.035, min(0.10, float(seconds)))
-            steps=max(2, min(6, int(round(total*35))))
+            total=max(0.045, min(0.14, float(seconds)))
+            # Dejamos que Roblox procese primero MouseButton2 antes de mover.
+            time.sleep(0.012)
+            steps=max(3, min(8, int(round(total*55))))
             sx=float(dx)/steps
             sy=float(dy)/steps
-            delay=max(0.0015, total/steps*0.20)
+            delay=max(0.0015, total/steps*0.55)
             for _ in range(steps):
-                if self.stop_event: break
-                self._mouse_move_rel(round(sx),round(sy))
+                if self.stop_event:
+                    break
+                self._mouse_move_rel(round(sx), round(sy))
                 time.sleep(delay)
         finally:
-            self._mouse_button("right",False)
+            self._mouse_button("right", False)
 
     def act(self, action):
         if self.stop_event:
