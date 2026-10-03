@@ -130,15 +130,12 @@ class VoiceListener:
                     now=time.monotonic()
 
                     if not active:
-                        idle_rec.AcceptWaveform(data)
-                        partial=self._result(idle_rec,True)
+                        accepted=idle_rec.AcceptWaveform(data)
+                        final=self._result(idle_rec,False) if accepted else ""
+                        partial=self._result(idle_rec,True) if not accepted else ""
                         if partial and now-last_ui>0.35:
                             self.on_status(f"🎙 {partial[-80:]}")
                             last_ui=now
-
-                        final=""
-                        if idle_rec.AcceptWaveform(data):
-                            final=self._result(idle_rec,False)
                         candidate=final or partial
                         if self._contains_wake(candidate):
                             active=True
