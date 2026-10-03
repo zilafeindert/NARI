@@ -1,0 +1,12 @@
+NARI 5.5.11
+
+- Added a JJS combat executive for search, aim, approach, engage, defend, escape, punish and guard-reading phases.
+- Human targets can now be followed using bounded visual center corrections, not only the Dummy marker.
+- Added reactive block behavior when an opponent attack is visually detected.
+- Added Q escape behavior for stun/ragdoll states.
+- Dummy combat can extend a confirmed M1 into a character skill candidate instead of only spamming M1.
+- Strengthened JJS rewards for confirmed hits, enemy damage, blocks, useful movement, aim alignment, target control and KO.
+- Stronger penalties for whiffs, attacking during cooldown, taking damage, attacking a blocker without confirmation, blind attacks, repetition and stagnation.
+- Canonicalized JJS action keys so dash/block/special/awakening rewards train the intended actions.
+- Increased JJS policy learning rate during early experiences.
+- Normalized visual boolean fields so textual true/false outputs do not corrupt combat state.
