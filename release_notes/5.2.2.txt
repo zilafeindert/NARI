@@ -1,0 +1,6 @@
+NARI 5.2.2
+
+Hotfix de arranque.
+- Restaura el modulo nari/agent.py que faltaba en la actualizacion 5.2.1.
+- El actualizador sigue usando automaticamente el repositorio oficial zilafeindert/NARI.
+- Se conservan memoria, modelos, voces, entorno y .env.
