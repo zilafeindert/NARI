@@ -1,8 +1,8 @@
 {
-  "version": "5.5.7",
-  "tag": "v5.5.7",
+  "version": "5.5.8",
+  "tag": "v5.5.8",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-camera-target-lock-9"
+  "release_build": "jjs-stable-target-lock-10"
 }
