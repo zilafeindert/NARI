@@ -119,7 +119,7 @@ class GameBrain:
                 return {"type": "wait", "seconds": 0.08}
             return {"type": "press", "key": key}
 
-        if kind in {"camera_turn", "camera_drag"}:
+        if kind in {"camera_turn", "camera_drag", "camera_key_turn"}:
             now = time.monotonic()
             if now - self.last_camera_ts < 0.045:
                 return {"type": "wait", "seconds": 0.08}
@@ -131,6 +131,13 @@ class GameBrain:
                 return {"type": "wait", "seconds": 0.08}
             seconds = max(0.035, min(0.10, float(out.get("seconds", 0.055) or 0.055)))
             self.last_camera_ts = now
+            if kind == "camera_key_turn":
+                return {
+                    "type": "camera_key_turn",
+                    "dx": dx,
+                    "dy": dy,
+                    "seconds": seconds,
+                }
             return {
                 "type": "camera_turn",
                 "dx": dx,
