@@ -84,6 +84,8 @@ class NariApp:
         self.game_target_title = ""
         self.root.bind("<F8>", lambda e: self.emergency_stop())
         self._build_ui()
+        self.global_hotkey_running = True
+        threading.Thread(target=self._global_hotkey_loop, name="NARI-hotkey", daemon=True).start()
 
         self.screen.start()
         try:
@@ -95,6 +97,23 @@ class NariApp:
         self.root.after(30000, self._idle_tick)
         self.root.after(int(self.settings.get("update_check_delay_seconds", 8) * 1000), self._auto_update_check)
         self._status(f"NARI {APP_VERSION}  •  lista  •  di «NARI»")
+
+    def _global_hotkey_loop(self):
+        if __import__("sys").platform != "win32":
+            return
+        try:
+            import ctypes
+            VK_F8 = 0x77
+            was_down = False
+            while getattr(self, "global_hotkey_running", False):
+                down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_F8) & 0x8000)
+                if down and not was_down:
+                    self.root.after(0, self.emergency_stop)
+                was_down = down
+                time.sleep(0.035)
+        except Exception as exc:
+            try: self._status("F8 global: "+str(exc))
+            except Exception: pass
 
     def _styles(self):
         self.style = ttk.Style(self.root)
@@ -542,10 +561,19 @@ class NariApp:
 
                     if result.get("error"):
                         self._status("⚠ visión: "+str(result["error"])[:110])
-                        if profile in {"roblox","generic"}:
-                            self.computer.act({"type":"hold","key":"w","seconds":0.20})
+                        action_summary=""
                     else:
                         action_summary=self.agent.execute_actions(result,True)
+
+                    # Movimiento de respaldo para que el agente tenga control aun
+                    # cuando el modelo visual no devuelve una accion en un ciclo.
+                    if self.game_running and not result.get("actions"):
+                        self.computer.keep_target_focused()
+                        self.computer.act({"type":"hold","key":"w","seconds":0.28})
+                        drift=((self.game_cycle%7)-3)*18
+                        self.computer.act({"type":"mouse_move_rel","dx":drift,"dy":0})
+                        if profile in {"roblox","generic"} and self.game_cycle % 9 == 0:
+                            self.computer.act({"type":"press","key":"space"})
                         reply=str(result.get("reply","")).strip()
                         if reply and self.game_cycle % 2 == 0:
                             self._append_chat("NARI","🎮 "+reply,"nari")
@@ -678,15 +706,20 @@ class NariApp:
             self.root.after(0,lambda:messagebox.showerror("Actualizaciones",str(e)))
 
     def emergency_stop(self):
-        self.game_running=False; self.agent.stop(); self.computer.stop()
-        for k in ("w","a","s","d","shift","space","ctrl"):
-            try:self.computer.act({"type":"key_up","key":k})
-            except Exception:pass
+        self.game_running=False
+        try: self.computer.release_all()
+        except Exception: pass
+        self.agent.stop()
+        self.computer.stop()
+        self._status("🛑 Parada inmediata")
+        try: self.game_status.set("DETENIDO")
+        except Exception: pass
         self._status("🛑 Parada inmediata")
         try:self.game_status.set("DETENIDO")
         except Exception:pass
 
     def close(self):
+        self.global_hotkey_running=False
         try:self.emergency_stop()
         except Exception:pass
         for obj in (self.listener,self.screen,self.people,self.tts):
