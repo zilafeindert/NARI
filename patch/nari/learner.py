@@ -274,6 +274,83 @@ class GameLearner:
         return max(-1.0, min(1.0, score))
 
     @staticmethod
+    def jjs_reward(
+        raw_visual_reward: float,
+        action: dict,
+        result: dict | None = None,
+        repeat_count: int = 0,
+        stagnation: int = 0,
+    ) -> float:
+        """Recompensa especifica de combate para Jujutsu Shenanigans.
+
+        La señal visual queda como apoyo. Los eventos de combate estimados por
+        vision tienen prioridad para que atacar, bloquear y acercarse aprendan
+        como conductas utiles, mientras que fallar, recibir dano o morir se
+        castiga.
+        """
+        result = result or {}
+        raw = max(-0.45, min(0.55, float(raw_visual_reward or 0.0)))
+        key = GameLearner.action_key(action)
+
+        def num(name, default=0.0):
+            try:
+                return max(-1.0, min(1.0, float(result.get(name, default) or default)))
+            except Exception:
+                return float(default)
+
+        hit = bool(result.get("hit_confirmed", False))
+        block = bool(result.get("block_success", False))
+        ko = bool(result.get("ko_confirmed", False) or result.get("death_or_ko", False))
+        whiff = bool(result.get("ability_whiff", False))
+        cooldown = bool(result.get("cooldown_active", False))
+        enemy_hp_delta = num("enemy_health_delta")
+        player_hp_delta = num("player_health_delta")
+        distance_delta = num("target_distance_delta")
+        align_delta = num("aim_alignment_delta")
+
+        score = 0.06 * raw
+
+        if enemy_hp_delta < -0.02:
+            score += min(0.85, abs(enemy_hp_delta) * 0.85)
+        if hit:
+            score += 0.34
+        if block:
+            score += 0.24
+        if distance_delta < -0.05:
+            score += min(0.10, abs(distance_delta) * 0.12)
+        if align_delta > 0.05:
+            score += min(0.12, align_delta * 0.14)
+
+        if player_hp_delta < -0.02:
+            score -= min(0.80, abs(player_hp_delta) * 0.90)
+        if ko:
+            score += 1.0 if enemy_hp_delta <= 0 else 0.65
+
+        if whiff:
+            score -= 0.20
+        if cooldown and key in {
+            "m1", "press_1", "press_2", "press_3", "press_4",
+            "press_r", "press_g", "dash_q", "block_f"
+        }:
+            score -= 0.14
+
+        if key in {"look_left", "look_right", "camera_turn", "camera_drag"}:
+            score *= 0.35
+            if align_delta <= 0.05:
+                score -= 0.03
+
+        if key == "wait":
+            score -= 0.06
+
+        if repeat_count >= 2:
+            score -= min(0.26, 0.075 * repeat_count)
+
+        if stagnation >= 3:
+            score -= min(0.18, 0.035 * (stagnation - 2))
+
+        return max(-1.0, min(1.0, score))
+
+    @staticmethod
     def action_key(action: dict) -> str:
         if not isinstance(action, dict):
             return "none"
