@@ -617,6 +617,7 @@ class NariApp:
                         continue
 
                     self.game_cycle += 1
+                    previous_note=""
                     state=self.agent.game_state_key(frame,profile) if self.learning_enabled else ""
                     visual_reward=0.0
 
@@ -672,58 +673,58 @@ class NariApp:
                     if self.game_running and self.learning_enabled and not executable:
                         learned,state=self.agent.game_fallback_action(profile,frame,self.game_cycle)
                         result["actions"]=[learned]
-                        result["reply"]="La visión falló; sigo explorando con lo que ya aprendí."
+                        result["reply"]="La visión falló o no encontró una acción; sigo explorando y aprendiendo."
                         executable=[learned]
-                        previous_note="fallback por error o falta de acción"
+                        previous_note="fallback aprendido"
 
-                        # Tras una recompensa muy negativa, fuerza una corrección
-                        # ocasional en lugar de repetir ciegamente la misma conducta.
-                        if (
-                            self.learning_enabled
-                            and executable
-                            and self.last_learning_action is not None
-                            and visual_reward < -0.20
-                            and self.game_cycle % 3 == 0
-                            and self.game_running
-                        ):
-                            learned,_=self.agent.game_fallback_action(profile,frame,self.game_cycle + 11)
-                            result["actions"]=[learned]
-                            result["reply"]="Ese intento no funcionó; estoy cambiando de estrategia."
-                            executable=[learned]
-                            previous_note="corrección por recompensa negativa"
+                    # Tras una recompensa muy negativa, fuerza una corrección ocasional
+                    # en lugar de repetir ciegamente la misma conducta.
+                    if (
+                        self.learning_enabled
+                        and executable
+                        and self.last_learning_action is not None
+                        and visual_reward < -0.20
+                        and self.game_cycle % 3 == 0
+                        and self.game_running
+                    ):
+                        learned,_=self.agent.game_fallback_action(profile,frame,self.game_cycle + 11)
+                        result["actions"]=[learned]
+                        result["reply"]="Ese intento no funcionó; estoy cambiando de estrategia."
+                        executable=[learned]
+                        previous_note="corrección por recompensa negativa"
 
-                        if not self.game_running:
-                            break
+                    if not self.game_running:
+                        break
 
-                        action_summary=self.agent.execute_actions(result,True)
+                    action_summary=self.agent.execute_actions(result,True)
 
-                        if self.game_running and executable:
-                            self.computer.keep_target_focused()
-                            chosen=executable[0]
-                            self.last_learning_state=state
-                            self.last_learning_action=chosen
-                            self.last_learning_action_label=self.agent.game_learner.action_key(chosen)
-                            self.last_learning_frame=frame.copy()
-                            if self.learning_enabled:
-                                stats=self.agent.game_stats(profile)
-                                self.root.after(
-                                    0,
-                                    lambda s=stats,a=self.last_learning_action_label:
-                                        self.game_learning_status.set(
-                                            f"Aprendizaje • {s['experiences']} exp • media {s['avg_reward']:+.2f} • probando {a}"
-                                        )
-                                )
-
-                        reply=str(result.get("reply","")).strip()
-                        if reply and self.game_cycle % 2 == 0:
-                            self._append_chat("NARI","🎮 "+reply,"nari")
-                        if action_summary:
-                            self.memory.add_episode(
-                                "game",
-                                f"{profile} • ciclo {self.game_cycle}",
-                                action_summary,
-                                (reply or "acción ejecutada") + ((" • " + previous_note) if previous_note else ""),
+                    if self.game_running and executable:
+                        self.computer.keep_target_focused()
+                        chosen=executable[0]
+                        self.last_learning_state=state
+                        self.last_learning_action=chosen
+                        self.last_learning_action_label=self.agent.game_learner.action_key(chosen)
+                        self.last_learning_frame=frame.copy()
+                        if self.learning_enabled:
+                            stats=self.agent.game_stats(profile)
+                            self.root.after(
+                                0,
+                                lambda s=stats,a=self.last_learning_action_label:
+                                    self.game_learning_status.set(
+                                        f"Aprendizaje • {s['experiences']} exp • media {s['avg_reward']:+.2f} • probando {a}"
+                                    )
                             )
+
+                    reply=str(result.get("reply","")).strip()
+                    if reply and self.game_cycle % 2 == 0:
+                        self._append_chat("NARI","🎮 "+reply,"nari")
+                    if action_summary:
+                        self.memory.add_episode(
+                            "game",
+                            f"{profile} • ciclo {self.game_cycle}",
+                            action_summary,
+                            (reply or "acción ejecutada") + ((" • " + previous_note) if previous_note else ""),
+                        )
 
                     next_allowed=time.perf_counter()+min_interval
             else:
