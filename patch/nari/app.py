@@ -140,86 +140,126 @@ class NariApp:
             ttk.Label(box, text=subtitle, background=PANEL, foreground=MUTED, wraplength=820).pack(anchor="w", pady=(5,0))
 
     def _make_chat(self):
-        f = ttk.Frame(self.content, style="Panel.TFrame", padding=0)
+        f = ttk.Frame(self.content, style="Panel.TFrame", padding=16)
         self.frames["chat"] = f
+        self._section(
+            f,
+            "Chat con NARI",
+            "Escribe un mensaje y NARI responde. El historial se guarda localmente y es permanente desde la interfaz: no existe un boton ni una funcion de borrado."
+        )
 
-        # Layout tipo Discord: lista de servidor/canales + cabecera + mensajes + compositor.
-        shell = tk.Frame(f, bg="#1e1f22")
-        shell.pack(fill="both", expand=True)
+        header = tk.Frame(f, bg="#171a21", height=54)
+        header.pack(fill="x")
+        header.pack_propagate(False)
 
-        server = tk.Frame(shell, bg="#17181b", width=68)
-        server.pack(side="left", fill="y")
-        server.pack_propagate(False)
-        tk.Label(server, text="N", bg="#5865f2", fg="white",
-                 font=("Segoe UI", 15, "bold"), width=2, height=1).pack(pady=(14,10), padx=10)
-        for letter, bg in [("#","#2b2d31"),("+","#2b2d31"),("◉","#2b2d31")]:
-            tk.Label(server, text=letter, bg=bg, fg="#dbdee1",
-                     font=("Segoe UI", 14, "bold"), width=2, height=1).pack(pady=5)
+        tk.Label(
+            header, text="NARI", bg="#171a21", fg="#f1f3f5",
+            font=("Segoe UI", 12, "bold")
+        ).pack(side="left", padx=(16,6))
 
-        channels = tk.Frame(shell, bg="#2b2d31", width=190)
-        channels.pack(side="left", fill="y")
-        channels.pack_propagate(False)
-        tk.Label(channels, text="NARI", bg="#2b2d31", fg="#f2f3f5",
-                 font=("Segoe UI", 13, "bold"), anchor="w").pack(fill="x", padx=14, pady=(16,10))
-        tk.Label(channels, text="TEXTO", bg="#2b2d31", fg="#949ba4",
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=14, pady=(2,3))
-        tk.Button(channels, text="  #  general", bg="#404249", fg="#ffffff",
-                  activebackground="#404249", activeforeground="#ffffff",
-                  relief="flat", bd=0, anchor="w", font=("Segoe UI", 10, "bold"),
-                  padx=8, command=lambda:None).pack(fill="x", padx=7, pady=2)
-        tk.Button(channels, text="  #  juego", bg="#2b2d31", fg="#b5bac1",
-                  activebackground="#404249", activeforeground="#ffffff",
-                  relief="flat", bd=0, anchor="w", font=("Segoe UI", 10),
-                  padx=8, command=lambda:self._show("game")).pack(fill="x", padx=7, pady=2)
-        tk.Label(channels, text="NARI • LOCAL", bg="#232428", fg="#949ba4",
-                 font=("Segoe UI", 8), anchor="w").pack(side="bottom", fill="x", padx=0, pady=0, ipady=12)
+        tk.Label(
+            header, text="● en línea", bg="#171a21", fg="#7debb0",
+            font=("Segoe UI", 9)
+        ).pack(side="left")
 
-        main = tk.Frame(shell, bg="#313338")
-        main.pack(side="left", fill="both", expand=True)
+        tk.Frame(f, bg="#252a34", height=1).pack(fill="x")
 
-        top = tk.Frame(main, bg="#313338", height=48)
-        top.pack(fill="x")
-        top.pack_propagate(False)
-        tk.Label(top, text="#", bg="#313338", fg="#949ba4",
-                 font=("Segoe UI", 16, "bold")).pack(side="left", padx=(16,5))
-        tk.Label(top, text="general", bg="#313338", fg="#f2f3f5",
-                 font=("Segoe UI", 11, "bold")).pack(side="left")
-        tk.Label(top, text="  Conversación local con NARI", bg="#313338", fg="#949ba4",
-                 font=("Segoe UI", 9)).pack(side="left", padx=10)
-        tk.Frame(main, bg="#1f2023", height=1).pack(fill="x")
+        body = tk.Frame(f, bg="#0f1218")
+        body.pack(fill="both", expand=True, pady=(0,10))
 
-        body = tk.Frame(main, bg="#313338")
-        body.pack(fill="both", expand=True)
-
-        self.chat_canvas = tk.Canvas(body, bg="#313338", highlightthickness=0, bd=0)
-        self.chat_scroll = ttk.Scrollbar(body, orient="vertical", command=self.chat_canvas.yview)
+        self.chat_canvas = tk.Canvas(
+            body, bg="#0f1218", highlightthickness=0, bd=0
+        )
+        self.chat_scroll = ttk.Scrollbar(
+            body, orient="vertical", command=self.chat_canvas.yview
+        )
         self.chat_canvas.configure(yscrollcommand=self.chat_scroll.set)
         self.chat_scroll.pack(side="right", fill="y")
         self.chat_canvas.pack(side="left", fill="both", expand=True)
-        self.chat_messages = tk.Frame(self.chat_canvas, bg="#313338")
-        self.chat_window = self.chat_canvas.create_window((0,0), window=self.chat_messages, anchor="nw")
 
-        def on_messages(event=None):
-            self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
-        def on_canvas(event):
-            self.chat_canvas.itemconfigure(self.chat_window, width=event.width)
-        self.chat_messages.bind("<Configure>", on_messages)
-        self.chat_canvas.bind("<Configure>", on_canvas)
-        self.chat_canvas.bind("<MouseWheel>",
-            lambda e: self.chat_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
-
-        composer = tk.Frame(main, bg="#313338")
-        composer.pack(fill="x", padx=16, pady=(5,16))
-        self.entry = tk.Entry(
-            composer, bg="#383a40", fg="#dbdee1", insertbackground="#ffffff",
-            relief="flat", bd=0, font=("Segoe UI", 11)
+        self.chat_messages = tk.Frame(self.chat_canvas, bg="#0f1218")
+        self.chat_window = self.chat_canvas.create_window(
+            (0,0), window=self.chat_messages, anchor="nw"
         )
-        self.entry.pack(fill="x", ipady=10)
-        self.entry.bind("<Return>", lambda e:self.send_text())
-        tk.Label(composer, text="Enter = enviar  •  voz: di «NARI»",
-                 bg="#313338", fg="#949ba4", font=("Segoe UI", 8)).pack(anchor="w", pady=(5,0))
 
-        self._append_chat("NARI", "¡Hola! Ya estoy aquí. ✨", "nari")
+        self.chat_messages.bind(
+            "<Configure>",
+            lambda e:self.chat_canvas.configure(
+                scrollregion=self.chat_canvas.bbox("all")
+            )
+        )
+        self.chat_canvas.bind(
+            "<Configure>",
+            lambda e:self.chat_canvas.itemconfigure(
+                self.chat_window, width=e.width
+            )
+        )
+        self.chat_canvas.bind(
+            "<MouseWheel>",
+            lambda e:self.chat_canvas.yview_scroll(
+                int(-1*(e.delta/120)), "units"
+            )
+        )
+
+        composer = tk.Frame(f, bg="#121620")
+        composer.pack(fill="x")
+
+        self.entry = tk.Entry(
+            composer,
+            bg="#202631",
+            fg="#eef1f5",
+            insertbackground="#ffffff",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 11)
+        )
+        self.entry.pack(
+            side="left", fill="x", expand=True,
+            padx=(12,8), pady=12, ipady=9
+        )
+        self.entry.bind("<Return>", lambda e:self.send_text())
+
+        tk.Button(
+            composer,
+            text="Enviar",
+            command=self.send_text,
+            bg="#5865f2",
+            fg="#ffffff",
+            activebackground="#4752c4",
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            font=("Segoe UI", 10, "bold"),
+            padx=18,
+            pady=9
+        ).pack(side="right", padx=(0,12), pady=12)
+
+        tk.Label(
+            f,
+            text="Historial permanente • guardado en data/nari.db • sin borrar desde NARI",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 8)
+        ).pack(anchor="w")
+
+        self._load_chat_history()
+
+    def _load_chat_history(self):
+        for child in self.chat_messages.winfo_children():
+            child.destroy()
+        history = self.memory.chat_history()
+        if not history:
+            self._append_chat("NARI", "Hola ✨ ¿Qué hacemos?", "nari", persist=False)
+            return
+        for item in history:
+            stamp = time.strftime("%d/%m/%Y %H:%M", time.localtime(float(item["created"])))
+            self._append_chat(
+                item["speaker"],
+                item["text"],
+                "me" if item["role"] == "user" else "nari",
+                persist=False,
+                timestamp=stamp
+            )
 
     def _make_game(self):
         f = ttk.Frame(self.content, style="Panel.TFrame", padding=16); self.frames["game"] = f
@@ -281,40 +321,63 @@ class NariApp:
         if key == "people": self._refresh_people()
         if key in {"state","dev"}: self._refresh_developer()
 
-    def _append_chat(self, speaker, text, tag):
-        def add():
-            row = tk.Frame(self.chat_messages, bg="#313338")
-            row.pack(fill="x", padx=18, pady=(3,8))
+    def _append_chat(self, speaker, text, tag, persist=True, timestamp=None):
+        if persist:
+            role = "user" if speaker == "Tú" else "assistant"
+            try:
+                self.memory.add_chat_message(role, speaker, str(text))
+            except Exception as exc:
+                self._status("Historial: error de guardado")
+                return
 
-            mine = speaker == "Tú"
-            avatar_bg = "#5865f2" if mine else "#c86bff"
-            initial = "T" if mine else "N"
+        def add():
+            row = tk.Frame(self.chat_messages, bg="#0f1218")
+            row.pack(fill="x", padx=16, pady=(8,1))
+
+            avatar_bg = "#5865f2" if speaker == "Tú" else "#c86bff"
+            avatar_text = "T" if speaker == "Tú" else "N"
 
             avatar = tk.Label(
-                row, text=initial, bg=avatar_bg, fg="#ffffff",
-                font=("Segoe UI", 9, "bold"), width=2, height=1
+                row, text=avatar_text,
+                bg=avatar_bg, fg="#ffffff",
+                font=("Segoe UI", 9, "bold"),
+                width=2, height=1
             )
             avatar.pack(side="left", anchor="n", padx=(0,10))
 
-            content = tk.Frame(row, bg="#313338")
-            content.pack(side="left", fill="x", expand=True)
+            body = tk.Frame(row, bg="#0f1218")
+            body.pack(side="left", fill="x", expand=True)
 
-            head = tk.Frame(content, bg="#313338")
-            head.pack(fill="x")
-            tk.Label(head, text=speaker, bg="#313338",
-                     fg="#f2f3f5", font=("Segoe UI", 10, "bold")).pack(side="left")
-            tk.Label(head, text="  " + time.strftime("%d/%m/%Y %H:%M"),
-                     bg="#313338", fg="#949ba4", font=("Segoe UI", 8)).pack(side="left")
+            top = tk.Frame(body, bg="#0f1218")
+            top.pack(fill="x")
 
             tk.Label(
-                content, text=str(text), bg="#313338", fg="#dbdee1",
-                justify="left", anchor="w", wraplength=760,
-                font=("Segoe UI", 10), padx=0, pady=2
-            ).pack(fill="x")
+                top, text=speaker,
+                bg="#0f1218", fg="#f1f3f5",
+                font=("Segoe UI", 10, "bold")
+            ).pack(side="left")
+
+            tk.Label(
+                top,
+                text="  " + (timestamp or time.strftime("%d/%m/%Y %H:%M")),
+                bg="#0f1218", fg="#777f8f",
+                font=("Segoe UI", 8)
+            ).pack(side="left")
+
+            tk.Label(
+                body, text=str(text),
+                bg="#0f1218", fg="#d7dbe2",
+                justify="left", anchor="w",
+                wraplength=760,
+                font=("Segoe UI", 10)
+            ).pack(fill="x", pady=(2,0))
 
             self.chat_canvas.update_idletasks()
-            self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+            self.chat_canvas.configure(
+                scrollregion=self.chat_canvas.bbox("all")
+            )
             self.chat_canvas.yview_moveto(1.0)
+
         self.root.after(0, add)
 
     def _status(self, value):
@@ -326,12 +389,20 @@ class NariApp:
 
     def _run_agent(self, text, from_voice=False):
         if self.busy:
-            self._append_chat("NARI", "Espera un segundo, todavía estoy respondiendo el mensaje anterior.", "nari")
+            self._append_chat(
+                "NARI",
+                "Espera un segundo, todavía estoy respondiendo el mensaje anterior.",
+                "nari"
+            )
             return
         self.busy = True
-        self._append_chat("Tú", text, "me")
+        self._append_chat("Tú", text, "me", persist=True)
         self._status("NARI • conectada")
-        threading.Thread(target=self._agent_thread, args=(text,), daemon=True).start()
+        threading.Thread(
+            target=self._agent_thread,
+            args=(text,),
+            daemon=True
+        ).start()
 
     def _agent_thread(self, text):
         try:
