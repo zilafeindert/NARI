@@ -1,0 +1,53 @@
+name: Publish NARI release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "version.json"
+      - "patch/**"
+      - "release_notes/**"
+      - ".github/workflows/publish-release.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build update ZIP
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          rm -rf build
+          mkdir -p "build/NARI-${VERSION}"
+          cp -R patch/. "build/NARI-${VERSION}/"
+          cd "build/NARI-${VERSION}"
+          zip -qr "../NARI-${VERSION}.zip" .
+          cd ../..
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          ZIP="build/NARI-${VERSION}.zip"
+          NOTES="release_notes/${VERSION}.txt"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --title "NARI ${VERSION}" --notes-file "$NOTES"
+          fi
