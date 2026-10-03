@@ -147,6 +147,7 @@ class Agent:
             actions = [actions]
         if not isinstance(actions, list):
             actions = []
+        actions = [a for a in actions if isinstance(a, dict)]
         if not actions and isinstance(result.get("action"), dict):
             actions = [result["action"]]
         if not actions and result.get("key"):
