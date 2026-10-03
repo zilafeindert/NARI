@@ -156,7 +156,20 @@ class Agent:
             actions = [{"type": "press", "key": str(result["key"])}]
         if not actions and "x" in result and "y" in result:
             actions = [{"type": "click", "x": result["x"], "y": result["y"], "normalized": True, "button": str(result.get("button", "left"))}]
-        return {"reply": str(result.get("reply", result.get("message", ""))).strip(), "actions": actions}
+        out = {
+            "reply": str(result.get("reply", result.get("message", ""))).strip(),
+            "actions": actions,
+        }
+        for key in ("reward", "progress", "observation", "done", "confidence"):
+            if key in result:
+                try:
+                    if key in {"reward", "progress", "confidence"}:
+                        out[key] = float(result[key])
+                    else:
+                        out[key] = result[key]
+                except Exception:
+                    pass
+        return out
 
     def _apply_memory_actions(self, result):
         clean = []
