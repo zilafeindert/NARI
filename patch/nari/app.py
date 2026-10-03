@@ -503,6 +503,17 @@ class NariApp:
         self.game_running=True
         self.game_cycle=0
         self.last_game_frame_ts=0.0
+        self.last_learning_frame=None
+        self.last_learning_state=""
+        self.last_learning_action=None
+        self.last_learning_action_label=""
+        self.learning_enabled=bool(self.settings.get("learning_enabled", True))
+        if self.learning_enabled:
+            try:
+                self.agent.game_learner.start_session(profile)
+                self.game_learning_status.set("Aprendizaje: exploración inicial")
+            except Exception as exc:
+                self._status("⚠ Aprendizaje: "+str(exc)[:90])
         threading.Thread(target=self._game_loop,args=(profile,),daemon=True).start()
         self.game_status.set(f"ACTIVO • {profile} • foco: {title}"); self._status(f"🎮 NARI jugando • {profile}")
 
@@ -539,9 +550,20 @@ class NariApp:
     def stop_game(self):
         self.game_running=False
         self.computer.stop()
+        self.computer.release_all()
         self.computer.clear_stop()
         self.computer.clear_target()
+        if self.learning_enabled:
+            try:
+                self.agent.game_learner.end_session()
+            except Exception:
+                pass
+        self.last_learning_frame=None
+        self.last_learning_state=""
+        self.last_learning_action=None
+        self.last_learning_action_label=""
         self.game_status.set("Detenido")
+        self.game_learning_status.set("Aprendizaje: sesión guardada")
         self._status("🎮 Juego detenido")
 
     def _game_loop(self,profile:str):
