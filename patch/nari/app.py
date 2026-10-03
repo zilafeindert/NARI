@@ -321,6 +321,7 @@ class NariApp:
         ttk.Button(bar, text="PARAR", command=self.stop_game).pack(side="left", padx=(6,0))
         ttk.Button(bar, text="PROBAR W", command=self._test_game_key).pack(side="left", padx=(6,0))
         ttk.Button(bar, text="PROBAR RATÓN", command=self._test_game_mouse).pack(side="left", padx=(6,0))
+        ttk.Button(bar, text="PROBAR CÁMARA", command=self._test_game_camera).pack(side="left", padx=(6,0))
         info = ttk.Frame(f, style="Panel.TFrame"); info.pack(fill="x", pady=4)
         self.game_status = tk.StringVar(value="Listo")
         ttk.Label(info, textvariable=self.game_status, background=PANEL, foreground=MUTED).pack(side="left")
@@ -610,6 +611,23 @@ class NariApp:
         except Exception as exc:
             self.game_status.set("Ratón: error")
             self._status("❌ Ratón: "+str(exc)[:100])
+
+    def _test_game_camera(self):
+        profile=self.game_profile_var.get().strip() or "jjs"
+        self.computer.clear_stop()
+        focused,title=self.computer.focus_game(profile)
+        if not focused:
+            messagebox.showwarning("Cámara", "No encontré la ventana del juego.")
+            return
+        try:
+            self.computer.focus_window(self.computer.target_hwnd)
+            self.computer.camera_drag(420, 0, 0.10)
+            time.sleep(0.12)
+            self.game_status.set("Cámara: giro de prueba enviado")
+            self._status("🎥 Cámara: giro de 420 px enviado con RMB")
+        except Exception as exc:
+            self.game_status.set("Cámara: error")
+            self._status("❌ Cámara: "+str(exc)[:100])
 
     def stop_game(self):
         self.game_running=False
