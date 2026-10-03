@@ -73,6 +73,11 @@ class NariApp:
         self.game_cycle = 0
         self.last_game_frame_ts = 0.0
         self.last_game_action_ts = 0.0
+        self.last_learning_frame = None
+        self.last_learning_state = ""
+        self.last_learning_action = None
+        self.last_learning_action_label = ""
+        self.learning_enabled = bool(self.settings.get("learning_enabled", True))
         self.developer = tk.BooleanVar(value=False)
         self.free_var = tk.BooleanVar(value=self.settings.get("talk_when_idle", False))
         self.people_var = tk.BooleanVar(value=self.settings.get("recognize_people", False))
