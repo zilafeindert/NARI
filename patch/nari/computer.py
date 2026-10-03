@@ -280,8 +280,20 @@ class Computer:
     def _mouse_move_rel(self, dx, dy):
         dx, dy = int(dx), int(dy)
         if IS_WINDOWS:
-            # Roblox/JJS suele responder mejor al movimiento relativo clasico
-            # de Win32 mientras el boton derecho esta presionado.
+            # Primer metodo: desplazar el cursor real mediante SetCursorPos.
+            # Esto produce un cambio de posicion que Roblox puede convertir en
+            # MouseMovement/MouseDelta incluso cuando la camara usa cursor bloqueado.
+            try:
+                class POINT(ctypes.Structure):
+                    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+                pt = POINT()
+                if user32.GetCursorPos(ctypes.byref(pt)):
+                    if user32.SetCursorPos(int(pt.x + dx), int(pt.y + dy)):
+                        return
+            except Exception:
+                pass
+
             try:
                 user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
                 return
@@ -337,13 +349,13 @@ class Computer:
         self._center_cursor_in_target()
         self._mouse_button("right", True)
         try:
-            total=max(0.045, min(0.14, float(seconds)))
-            # Dejamos que Roblox procese primero MouseButton2 antes de mover.
-            time.sleep(0.012)
-            steps=max(3, min(8, int(round(total*55))))
+            total=max(0.05, min(0.16, float(seconds)))
+            # Dejamos que Roblox procese MouseButton2 antes del primer movimiento.
+            time.sleep(0.016)
+            steps=max(4, min(10, int(round(total*60))))
             sx=float(dx)/steps
             sy=float(dy)/steps
-            delay=max(0.0015, total/steps*0.55)
+            delay=max(0.002, total/steps*0.60)
             for _ in range(steps):
                 if self.stop_event:
                     break
