@@ -104,6 +104,7 @@ class NariApp:
 
         self.root.after(33, self._refresh_ui)
         self.root.after(30000, self._idle_tick)
+        threading.Thread(target=self._autonomous_reflection_loop, daemon=True, name="NARI-reflection").start()
         self.root.after(int(self.settings.get("update_check_delay_seconds", 8) * 1000), self._auto_update_check)
         self._status(f"NARI {APP_VERSION}  •  lista  •  di «NARI»")
 
@@ -964,6 +965,21 @@ class NariApp:
             self.internal_text.delete("1.0","end")
             self.internal_text.insert("end","No se pudo cargar el estado interno: "+str(exc))
         self._refresh_people()
+
+    def _autonomous_reflection_loop(self):
+        # Reflexión privada lenta: no compite con Ollama durante el juego.
+        while True:
+            try:
+                time.sleep(45)
+                if getattr(self, "game_running", False) or getattr(self, "busy", False):
+                    continue
+                if not getattr(self, "voice_var", tk.BooleanVar(value=True)).get():
+                    pass
+                value=self.agent.autonomous_reflection()
+                if value:
+                    self._status("🧠 Pensamiento privado actualizado")
+            except Exception:
+                time.sleep(10)
 
     def _idle_tick(self):
         if self.free_var.get() and not self.busy and not self.game_running:
