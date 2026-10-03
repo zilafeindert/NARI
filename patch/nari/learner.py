@@ -14,9 +14,14 @@ DEFAULT_ACTIONS = {
         "hold_w",
         "hold_a",
         "hold_d",
+        "hold_s",
+        "jump",
+        "sprint_forward",
+        "interact",
         "look_left",
         "look_right",
-        "space",
+        "look_up",
+        "look_down",
         "click",
         "wait",
     ),
@@ -217,17 +222,27 @@ class GameLearner:
     def action_from_key(key: str, profile: str, cycle: int = 0) -> dict:
         key = str(key or "wait")
         if key == "hold_w":
-            return {"type": "hold", "key": "w", "seconds": 0.65}
+            return {"type": "hold", "key": "w", "seconds": 0.50}
         if key == "hold_a":
-            return {"type": "hold", "key": "a", "seconds": 0.42}
+            return {"type": "hold", "key": "a", "seconds": 0.35}
         if key == "hold_d":
-            return {"type": "hold", "key": "d", "seconds": 0.42}
-        if key == "look_left":
-            return {"type": "camera_drag", "dx": -300, "dy": 0, "seconds": 0.18}
-        if key == "look_right":
-            return {"type": "camera_drag", "dx": 300, "dy": 0, "seconds": 0.18}
-        if key == "space":
+            return {"type": "hold", "key": "d", "seconds": 0.35}
+        if key == "hold_s":
+            return {"type": "hold", "key": "s", "seconds": 0.30}
+        if key == "jump":
             return {"type": "press", "key": "space"}
+        if key == "sprint_forward":
+            return {"type": "keys", "keys": ["shift","w"], "seconds": 0.50}
+        if key == "interact":
+            return {"type": "press", "key": "e"}
+        if key == "look_left":
+            return {"type": "camera_drag", "dx": -420, "dy": 0, "seconds": 0.12}
+        if key == "look_right":
+            return {"type": "camera_drag", "dx": 420, "dy": 0, "seconds": 0.12}
+        if key == "look_up":
+            return {"type": "camera_drag", "dx": 0, "dy": -260, "seconds": 0.10}
+        if key == "look_down":
+            return {"type": "camera_drag", "dx": 0, "dy": 260, "seconds": 0.10}
         if key == "click":
             return {"type": "click", "x": 500, "y": 500, "normalized": True}
         if key == "click_center":
