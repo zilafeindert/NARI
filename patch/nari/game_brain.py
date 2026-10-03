@@ -87,10 +87,10 @@ class GameBrain:
         kind = str(out.get("type", "")).lower().strip()
 
         if kind == "m1":
-            return {"type": "m1", "seconds": max(0.025, min(0.12, float(out.get("seconds", 0.055) or 0.055)))}
+            return {"type": "m1", "seconds": max(0.02, min(0.09, float(out.get("seconds", 0.045) or 0.045)))}
 
         if kind == "block":
-            return {"type": "block", "seconds": max(0.08, min(1.0, float(out.get("seconds", 0.35) or 0.35)))}
+            return {"type": "block", "seconds": max(0.08, min(0.60, float(out.get("seconds", 0.22) or 0.22)))}
 
         if kind == "double_tap_w":
             return {"type": "double_tap_w"}
@@ -99,11 +99,11 @@ class GameBrain:
             key = str(out.get("key", "w")).lower()
             if key not in {"w", "a", "d", "s"}:
                 return {"type": "wait", "seconds": 0.08}
-            seconds = float(out.get("seconds", 0.34) or 0.34)
+            seconds = float(out.get("seconds", 0.22) or 0.22)
             return {
                 "type": "hold",
                 "key": key,
-                "seconds": max(0.18, min(0.58, seconds)),
+                "seconds": max(0.10, min(0.38, seconds)),
             }
 
         if kind == "keys":
@@ -121,7 +121,7 @@ class GameBrain:
 
         if kind in {"camera_turn", "camera_drag"}:
             now = time.monotonic()
-            if now - self.last_camera_ts < 0.10:
+            if now - self.last_camera_ts < 0.045:
                 return {"type": "wait", "seconds": 0.08}
             # Limitamos deliberadamente el giro para que un error visual no
             # convierta una microdecision en un giro gigantesco.
@@ -129,7 +129,7 @@ class GameBrain:
             dy = max(-170, min(170, int(float(out.get("dy", 0) or 0))))
             if dx == 0 and dy == 0:
                 return {"type": "wait", "seconds": 0.08}
-            seconds = max(0.06, min(0.16, float(out.get("seconds", 0.09) or 0.09)))
+            seconds = max(0.035, min(0.10, float(out.get("seconds", 0.055) or 0.055)))
             self.last_camera_ts = now
             return {
                 "type": "camera_turn",
@@ -154,7 +154,7 @@ class GameBrain:
             return {"type": "click", "x": x, "y": y, "normalized": True, "button": button}
 
         if kind == "wait":
-            return {"type": "wait", "seconds": max(0.05, min(0.28, float(out.get("seconds", 0.10) or 0.10)))}
+            return {"type": "wait", "seconds": max(0.035, min(0.18, float(out.get("seconds", 0.06) or 0.06)))}
 
         return {"type": "wait", "seconds": 0.08}
 
@@ -181,10 +181,10 @@ class GameBrain:
         self.exploration_cursor += 1
         if self.profile == "jjs":
             pool = [
-                {"type": "hold", "key": "w", "seconds": 0.32},
-                {"type": "hold", "key": "a", "seconds": 0.25},
-                {"type": "hold", "key": "d", "seconds": 0.25},
-                {"type": "m1", "seconds": 0.055},
+                {"type": "hold", "key": "w", "seconds": 0.20},
+                {"type": "hold", "key": "a", "seconds": 0.18},
+                {"type": "hold", "key": "d", "seconds": 0.18},
+                {"type": "m1", "seconds": 0.045},
                 {"type": "press", "key": "q"},
                 {"type": "block", "seconds": 0.30},
                 {"type": "press", "key": "1"},
@@ -194,10 +194,10 @@ class GameBrain:
                 {"type": "press", "key": "r"},
                 {"type": "press", "key": "g"},
                 {"type": "double_tap_w"},
-                {"type": "camera_turn", "dx": -110, "dy": 0, "seconds": 0.07},
-                {"type": "camera_turn", "dx": 110, "dy": 0, "seconds": 0.07},
-                {"type": "camera_turn", "dx": 0, "dy": -80, "seconds": 0.06},
-                {"type": "camera_turn", "dx": 0, "dy": 80, "seconds": 0.06},
+                {"type": "camera_turn", "dx": -180, "dy": 0, "seconds": 0.055},
+                {"type": "camera_turn", "dx": 180, "dy": 0, "seconds": 0.055},
+                {"type": "camera_turn", "dx": 0, "dy": -110, "seconds": 0.05},
+                {"type": "camera_turn", "dx": 0, "dy": 110, "seconds": 0.05},
                 {"type": "press", "key": "space"},
                 {"type": "wait", "seconds": 0.10},
             ]
