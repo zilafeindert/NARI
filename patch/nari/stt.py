@@ -29,14 +29,24 @@ class VoiceListener:
         self.model=None
         self.ignore=False
         self.force_command_until=0.0
+        self.last_audio_time=0.0
+        self.audio_level=0.0
 
     def set_ignore(self, value):
         self.ignore=bool(value)
 
-    def arm_command(self, seconds=8.0):
+    def arm_command(self, seconds=7.0):
         """Activa una captura de voz inmediata sin exigir la palabra de activación."""
-        self.force_command_until=time.monotonic()+max(2.0,float(seconds))
-        self.on_status("🎙 Habla ahora… no necesitas decir «NARI»")
+        try:
+            while True:
+                self.q.get_nowait()
+        except queue.Empty:
+            pass
+        except Exception:
+            pass
+        self.force_command_until=time.monotonic()+max(3.0,float(seconds))
+        self.last_audio_time=time.monotonic()
+        self.on_status("🎙 HABLAR AHORA • tienes unos segundos para hablar")
 
     def _ensure_model(self):
         if self.model_dir.exists():
@@ -124,7 +134,15 @@ class VoiceListener:
     def _cb(self,indata,frames,time_info,status):
         if not self.running: return
         try:
-            self.q.put_nowait(bytes(indata))
+            raw=bytes(indata)
+            self.last_audio_time=time.monotonic()
+            try:
+                samples=np.frombuffer(raw,dtype=np.int16)
+                if samples.size:
+                    self.audio_level=float(np.sqrt(np.mean(samples.astype(np.float32)**2)))
+            except Exception:
+                pass
+            self.q.put_nowait(raw)
         except queue.Full:
             try:
                 self.q.get_nowait()
@@ -274,6 +292,20 @@ class VoiceListener:
                 try:
                     data=self.q.get(timeout=0.15)
                 except queue.Empty:
+                    now=time.monotonic()
+                    if (
+                        not active
+                        and self.force_command_until > 0
+                        and now >= self.force_command_until
+                    ):
+                        self.force_command_until=0.0
+                        self.on_status("❌ No llegó audio del micrófono durante la captura.")
+                    elif (
+                        not active
+                        and self.force_command_until > 0
+                        and now-self.last_audio_time > 0.9
+                    ):
+                        self.on_status("⚠️ Captura armada, pero no están llegando datos del micrófono.")
                     continue
 
                 data=self._resample(data, actual_rate, 16000)
@@ -282,17 +314,18 @@ class VoiceListener:
                     continue
 
                 now=time.monotonic()
+                direct_mode = (self.force_command_until > 0)
 
-                if not active and now < self.force_command_until:
+                if not active and direct_mode:
                     active=True
                     started=now
                     last_speech=now
                     command_parts=[]
                     command_rec=KaldiRecognizer(self.model,16000)
-                    self.on_status("🎙 Captura directa activada • habla ahora")
+                    self.on_status("🎙 Micrófono recibiendo audio • habla ahora")
                     idle_rec=KaldiRecognizer(self.model,16000)
-                    continue
-
+                    # Procesa este mismo bloque: antes se descartaba y podía perder
+                    # el inicio de la frase.
                 if not active:
                     accepted=idle_rec.AcceptWaveform(data)
                     final=self._result(idle_rec,False) if accepted else ""
@@ -345,8 +378,10 @@ class VoiceListener:
                             self.on_status(f"🗣 {partial[-90:]}")
                             last_ui=now
 
+                direct_finished = self.force_command_until > 0 and now >= self.force_command_until
                 finished=(
-                    (now-started)>=self.max_seconds
+                    direct_finished
+                    or (now-started)>=self.max_seconds
                     or (last_speech>0 and now-last_speech>=self.silence_seconds)
                 )
 
@@ -360,6 +395,7 @@ class VoiceListener:
                     command_rec=None
                     command_parts=[]
                     idle_rec=KaldiRecognizer(self.model,16000)
+                    self.force_command_until=0.0
 
                     if text:
                         self.on_status(f"✅ Entendí: {text[:120]}")
