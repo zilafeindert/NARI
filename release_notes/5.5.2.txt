@@ -1,0 +1,4 @@
+NARI 5.5.2
+- Corrige un bucle del actualizador: la version interna de NARI estaba atascada en 5.5.0, por lo que una instalacion ya actualizada podia volver a ofrecer la misma actualizacion al reiniciar.
+- El actualizador y la interfaz ahora reportan NARI 5.5.2 y dejan de considerar 5.5.1/5.5.2 como nuevas una vez instalada la version.
+- Conserva memoria, modelos, voces, .venv y .env.
