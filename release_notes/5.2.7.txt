@@ -1,0 +1,9 @@
+NARI 5.2.7
+
+Voz y control de juego.
+- Listener Vosk siempre activo con VAD adaptativo, tolerancia a variantes de “NARI” y seleccion opcional de dispositivo de entrada.
+- Estado de voz mas claro al iniciar.
+- Entrada de teclado en Windows mediante SendInput para mejorar compatibilidad con juegos.
+- Compatibilidad con Python 3.14 para ULONG_PTR.
+- Bloqueo del objetivo de juego para que otra ventana no robe el foco mientras NARI juega.
+- Prueba real de W durante 0.6 s antes de iniciar el modo de juego.
