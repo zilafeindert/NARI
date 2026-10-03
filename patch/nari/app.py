@@ -312,6 +312,8 @@ class NariApp:
         info = ttk.Frame(f, style="Panel.TFrame"); info.pack(fill="x", pady=4)
         self.game_status = tk.StringVar(value="Listo")
         ttk.Label(info, textvariable=self.game_status, background=PANEL, foreground=MUTED).pack(side="left")
+        self.game_learning_status = tk.StringVar(value="Aprendizaje: listo")
+        ttk.Label(info, textvariable=self.game_learning_status, background=PANEL, foreground=ACCENT2).pack(side="left", padx=(16,0))
         ttk.Label(info, text="   •   F8 detiene todo", background=PANEL, foreground=ACCENT2).pack(side="left")
         self.video_label = ttk.Label(f, background="#080a0e"); self.video_label.pack(fill="both", expand=True, pady=(8,0))
 
