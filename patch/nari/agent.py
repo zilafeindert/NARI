@@ -199,7 +199,10 @@ class Agent:
             "hit_confirmed", "block_success", "ko_confirmed", "death_or_ko",
             "ability_whiff", "cooldown_active", "target_visible",
             "target_center_x", "target_center_y", "target_distance", "target_distance_delta", "target_name", "target_is_dummy",
-            "enemy_health_delta", "player_health_delta", "aim_alignment_delta"
+            "enemy_health_delta", "player_health_delta", "aim_alignment_delta",
+            "target_stunned", "target_blocking", "opponent_attacking",
+            "player_stunned", "player_ragdolled", "ability_confirmed",
+            "player_dead", "target_health_percent", "player_health_percent"
         ):
             if key in result:
                 try:
@@ -274,15 +277,20 @@ class Agent:
         if profile == "jjs":
             controls = (
                 "Jujutsu Shenanigans en PC: M1/click izquierdo = combo basico; 1/2/3/4 = "
-                "habilidades; Q = dash/escape; F = bloquear; R = especial; G = awakening; "
-                "W+W = sprint; Shift = Shift Lock. El HUD y el estado del personaje mandan. "
-                "Busca primero el Dummy de entrenamiento si está presente. El Dummy tiene un cuadrado "
-                "verde sobre la cabeza; usa ese marcador, su nombre o su silueta como evidencia. "
-                "Marca target_is_dummy=true solo cuando la evidencia sea visible. "
-                "Si el objetivo está fuera del centro horizontal o vertical (target_center_x/target_center_y), "
-                "gira la cámara hacia él con camera_turn. El giro usa RMB y debe producir un "
-                "cambio visible entre fotogramas. Si no produce cambio, prueba camera_key_turn. "
-                "Cuando el Dummy esté centrado y a distancia de ataque, prioriza M1. No ataques al aire."
+                "habilidades; Q = dash y tambien escape de stun/ragdoll; F = bloquear; R = especial; "
+                "G = awakening; W+W = sprint; Shift = Shift Lock. El combate debe seguir un ciclo: "
+                "buscar objetivo -> centrar -> entrar en rango -> confirmar M1 -> extender solo si hay "
+                "impacto -> defender o reposicionarse -> volver a confirmar. Q no se gasta sin motivo: "
+                "guardalo para escapar de stun/ragdoll o para un cierre/retirada justificados. "
+                "El bloqueo depende de estar mirando al rival; no bloquees indefinidamente. "
+                "Cuando el rival esta bloqueando, no repitas M1 sin una lectura que justifique romper guardia. "
+                "Cuando el rival esta atacando, prioriza bloquear, girar para mantenerlo enfrente o usar Q "
+                "si estas en stun/ragdoll. Usa 1-4/R solo cuando la imagen muestre una apertura o cuando "
+                "la accion anterior haya confirmado una ruta valida. El Dummy tiene un cuadrado verde sobre "
+                "la cabeza; usa marcador, nombre o silueta como evidencia, pero exige consistencia temporal. "
+                "Marca target_is_dummy=true solo con evidencia visible. El rival humano puede no tener marcador: "
+                "usa su silueta, centro corporal y cambios temporales. Si el objetivo esta fuera de centro, "
+                "gira poco hacia el. No ataques al aire ni ejecutes combos completos por anticipado."
             )
         elif profile == "roblox":
             controls = (
@@ -336,17 +344,17 @@ class Agent:
                 "que elemento visible es relevante y propone hasta dos microacciones. "
                 "La primera debe ser la mejor; la segunda una alternativa util y distinta. "
                 "Evalua tambien la accion anterior. "
-                "En JJS informa hit_confirmed, block_success, ko_confirmed, ability_whiff, "
-                "cooldown_active, enemy_health_delta, player_health_delta, target_visible, "
-                "target_center_x, target_center_y, target_distance_delta y aim_alignment_delta cuando puedas. "
-                "enemy/player health delta: negativo significa perdida de vida; "
-                "target_center_y: 0.0=arriba y 1.0=abajo; "
-                "target_distance: 0.0=muy cerca y 1.0=muy lejos cuando pueda estimarse; "
-                "target_distance_delta: negativo significa que se acerco; "
-                "target_is_dummy: true solo con evidencia de que es el Dummy de entrenamiento; "
-                "target_name: nombre visible si existe; "
-                "aim_alignment_delta: positivo significa que el objetivo quedo mas centrado. "
-                "No inventes un impacto si no hay evidencia temporal."
+                "En JJS informa hit_confirmed, block_success, ko_confirmed, death_or_ko, ability_whiff, "
+                "ability_confirmed, cooldown_active, enemy_health_delta, player_health_delta, target_visible, "
+                "target_center_x, target_center_y, target_distance, target_distance_delta y aim_alignment_delta "
+                "cuando puedas. Informa tambien target_stunned, target_blocking, opponent_attacking, "
+                "player_stunned, player_ragdolled, player_dead, target_health_percent y player_health_percent "
+                "si hay evidencia visual. Los deltas de vida: negativo significa perdida de vida. "
+                "target_center_y: 0.0=arriba y 1.0=abajo. target_distance: 0.0=muy cerca y 1.0=muy lejos. "
+                "target_distance_delta: negativo significa que se acerco. aim_alignment_delta: positivo "
+                "significa que el objetivo quedo mas centrado. target_is_dummy=true solo con evidencia del Dummy. "
+                "No inventes impactos, daño, bloqueo ni estados; compara los fotogramas cuando sea posible. "
+                "Da prioridad a confirmaciones de combate sobre cambios visuales genericos."
             ),
             "images":images_b64,
         }
