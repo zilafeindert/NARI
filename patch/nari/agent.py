@@ -7,6 +7,7 @@ import requests
 from .config import OLLAMA_URL, load_settings
 from .personality import prompt_for, random_micro_shift
 from .learner import GameLearner
+from .decision import DecisionCore
 
 GAME_PROFILES = {
     "generic": "Entorno interactivo generico. Observa el fotograma y decide una accion util.",
@@ -33,6 +34,7 @@ class Agent:
         self._models_cache = []
         self._models_cache_ts = 0.0
         self.game_learner = GameLearner(self.memory.path)
+        self.decisions = DecisionCore(self.memory.path)
 
     def set_settings(self, settings):
         self.settings = settings or {}
@@ -176,7 +178,7 @@ class Agent:
             "reply": str(result.get("reply", result.get("message", ""))).strip(),
             "actions": actions,
         }
-        for key in ("reward", "progress", "observation", "done", "confidence"):
+        for key in ("reward", "progress", "observation", "done", "confidence", "plan", "decision_note", "mode"):
             if key in result:
                 try:
                     if key in {"reward", "progress", "confidence"}:
@@ -241,37 +243,46 @@ class Agent:
         hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
         if profile == "roblox":
             controls = (
-                "CONTROLES: W/A/S/D mover; SPACE saltar; SHIFT+W correr; E interactuar; "
-                "Q/R/F/1/2/3 acciones situacionales; click interactuar con UI; "
-                "camera_drag = RMB + movimiento del mouse para cámara."
+                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT puede activar Shift Lock "
+                "si la experiencia lo permite; SHIFT+W correr; E interactuar; "
+                "Q/R/F/1/2/3 son teclas situacionales; click UI; "
+                "camera_drag = RMB mantenido + movimiento relativo."
             )
         else:
             controls = GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
+
         system = (
             "/no_think\n"
-            "Control visual en tiempo real. Devuelve SOLO JSON y UNA acción ejecutable. "
-            "Formato: {\"actions\":[{\"type\":\"...\"}]} . "
-            "No escribas explicaciones, código, reward ni texto largo. "
-            "Elige la acción más útil para avanzar el objetivo. "
+            "Eres un agente de juego en tiempo real. Observa solo la imagen actual. "
+            "Toma una decisión deliberada, pero no expliques el razonamiento interno. "
+            "Devuelve un plan corto de 1 a 3 acciones ordenadas que tengan sentido juntas. "
+            "JSON: {actions:[...],plan:"...",decision_note:"...",observation:"...",confidence:0.0}. "
+            "plan y decision_note deben ser resúmenes breves de la decisión, no cadena de pensamiento. "
+            "No devuelvas código. Evita cambiar de dirección sin una razón visible. "
+            "Mantén una acción de movimiento durante un tramo razonable. "
             + controls +
             "\nOBJETIVO: " + str(goal) +
             "\nACCION ANTERIOR: " + (previous_action or "ninguna") +
-            "\nMEMORIA LOCAL: " + hint[:500]
+            "\nAPRENDIZAJE: " + hint[:450]
         )
+
         msg = {
             "role": "user",
-            "content": "Mira el fotograma y elige la siguiente acción.",
+            "content": "Mira el fotograma y decide el siguiente pequeño plan.",
             "images": images_b64,
         }
+
         try:
-            result=self._normalize(self._parse(self._call(
+            result = self._normalize(self._parse(self._call(
                 [{"role":"system","content":system},msg],
-                model, 3.5, 28, 768
+                model, 4.5, 56, 896
             )))
+
             if profile == "roblox":
                 fixed=[]
-                for action in result.get("actions",[])[:2]:
-                    if not isinstance(action,dict): continue
+                for action in result.get("actions",[])[:3]:
+                    if not isinstance(action,dict):
+                        continue
                     kind=str(action.get("type","")).lower()
                     if kind=="mouse_move_rel":
                         dx=int(float(action.get("dx",0) or 0))
@@ -285,23 +296,50 @@ class Agent:
                     elif kind in {"camera_drag","camera_turn"}:
                         action["dx"]=max(-750,min(750,int(float(action.get("dx",0) or 0))))
                         action["dy"]=max(-500,min(500,int(float(action.get("dy",0) or 0))))
-                        action["seconds"]=max(0.07,min(0.20,float(action.get("seconds",0.11))))
+                        action["seconds"]=max(0.07,min(0.22,float(action.get("seconds",0.11))))
                         fixed.append(action)
                     elif kind=="hold" and str(action.get("key","")).lower() in {"w","a","d","s"}:
-                        action["seconds"]=max(0.35,min(0.80,float(action.get("seconds",0.50))))
+                        action["seconds"]=max(0.45,min(1.0,float(action.get("seconds",0.65))))
                         fixed.append(action)
                     elif kind=="keys":
                         keys={str(x).lower() for x in action.get("keys",[])}
                         if {"shift","w"} <= keys:
                             action["keys"]=["shift","w"]
-                            action["seconds"]=0.45
+                            action["seconds"]=0.50
                             fixed.append(action)
                     elif kind in {"press","click"}:
                         fixed.append(action)
-                result["actions"]=fixed[:1]
+                    elif kind in {"mouse_button_down","mouse_button_up"}:
+                        fixed.append(action)
+                result["actions"]=fixed[:3]
             return result
         except Exception as exc:
             return {"reply":"","actions":[],"error":str(exc),"model":model}
+
+    def decision_record(self, context, goal, result, decision):
+        try:
+            self.decisions.record(
+                context=context,
+                goal=goal,
+                observation=result.get("observation",""),
+                plan=result.get("plan",""),
+                decision=decision,
+                confidence=float(result.get("confidence",0.0) or 0.0),
+            )
+        except Exception:
+            pass
+
+    def decision_latest(self, context=None):
+        try:
+            return self.decisions.latest(context)
+        except Exception:
+            return {}
+
+    def decision_recent(self, limit=15, context=None):
+        try:
+            return self.decisions.recent(limit, context)
+        except Exception:
+            return []
 
     def game_state_key(self, frame, profile="generic"):
         return self.game_learner.state_key(frame, profile)
