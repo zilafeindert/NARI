@@ -286,6 +286,13 @@ class VoiceListener:
             stream, actual_rate, device_name = self._open_stream()
             self.on_status(f"🎙 Mic activo • {device_name} • {actual_rate} Hz")
             idle_rec=KaldiRecognizer(self.model,16000)
+            try:
+                wake_rec=KaldiRecognizer(
+                    self.model,16000,
+                    '["nari","nary","narí","narii","nariy"]'
+                )
+            except Exception:
+                wake_rec=KaldiRecognizer(self.model,16000)
             command_rec=None
             command_parts=[]
             active=False
@@ -332,19 +339,31 @@ class VoiceListener:
                     # Procesa este mismo bloque: antes se descartaba y podía perder
                     # el inicio de la frase.
                 if not active:
+                    # Detector dedicado: en llamadas, Discord/Roblox y ruido de
+                    # juego evita que el texto general "se coma" la palabra NARI.
+                    wake_final=""
+                    try:
+                        wake_accepted=wake_rec.AcceptWaveform(data)
+                        wake_final=self._result(wake_rec,False) if wake_accepted else ""
+                        wake_partial=self._result(wake_rec,True) if not wake_accepted else ""
+                    except Exception:
+                        wake_partial=""
+                    if wake_final:
+                        candidate_wake=wake_final
+                    else:
+                        candidate_wake=wake_partial
+
                     accepted=idle_rec.AcceptWaveform(data)
                     final=self._result(idle_rec,False) if accepted else ""
                     partial=self._result(idle_rec,True) if not accepted else ""
 
                     if final:
                         self.on_status(f"🎙 Escuché: {final[-90:]}")
-                    elif partial and now-last_ui>0.35:
+                    elif partial and now-last_ui>0.50:
                         self.on_status(f"🎙 …{partial[-80:]}")
                         last_ui=now
 
-                    # El reconocimiento de palabra de activación se comprueba
-                    # tanto en segmentos finalizados como en parciales.
-                    candidate=" ".join(x for x in (final,partial) if x).strip()
+                    candidate=" ".join(x for x in (candidate_wake,final,partial) if x).strip()
                     if self._contains_wake(candidate):
                         active=True
                         started=now
@@ -400,6 +419,10 @@ class VoiceListener:
                     command_rec=None
                     command_parts=[]
                     idle_rec=KaldiRecognizer(self.model,16000)
+                    try:
+                        wake_rec=KaldiRecognizer(self.model,16000,'["nari","nary","narí","narii","nariy"]')
+                    except Exception:
+                        wake_rec=KaldiRecognizer(self.model,16000)
                     self.force_command_until=0.0
 
                     if text:
