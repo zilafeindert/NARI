@@ -247,6 +247,25 @@ class Agent:
         except Exception as exc:
             return {"reply": "", "actions": [], "error": str(exc), "model": model}
 
+    def game_state_key(self, frame, profile="generic"):
+        return self.game_learner.state_key(frame, profile)
+
+    def game_fallback_action(self, profile, frame, cycle):
+        state = self.game_state_key(frame, profile)
+        return self.game_learner.choose(profile, state, cycle), state
+
+    def game_record(self, profile, state, action, reward, source="vision", note=""):
+        self.game_learner.record(profile, state, action, reward, source, note)
+
+    def game_remember_transition(self, profile, state, action):
+        self.game_learner.remember_transition(profile, state, action)
+
+    def game_hint(self, profile, state):
+        return self.game_learner.hint(profile, state)
+
+    def game_stats(self, profile):
+        return self.game_learner.stats(profile)
+
     def execute_actions(self, result, autonomy_allowed=False):
         if not autonomy_allowed:
             return "autonomia apagada"
