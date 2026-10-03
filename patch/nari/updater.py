@@ -8,7 +8,7 @@ import requests
 from .config import ROOT, SETTINGS_FILE
 
 APP_NAME = "NARI"
-APP_VERSION = "5.2.3"
+APP_VERSION = "5.2.4"
 OFFICIAL_REPO = "zilafeindert/NARI"
 GITHUB_TIMEOUT = 15
 DOWNLOAD_TIMEOUT = 120
