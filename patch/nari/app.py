@@ -549,8 +549,18 @@ class NariApp:
         goal=self.game_goal.get().strip() or (
             "Explora el juego, aprende sus controles y completa objetivos visibles."
         )
+        if profile == "jjs":
+            goal += (
+                "
+PRIORIDAD JJS: localiza el Dummy de entrenamiento, "
+                "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
+            )
         self.game_target_title=title
         self.computer.clear_stop()
+        try:
+            self.screen.set_target_window(self.computer.target_hwnd)
+        except Exception:
+            pass
         self.computer.focus_title(title)
         self.computer.minimize_host()
         self.game_running=True
@@ -635,6 +645,10 @@ class NariApp:
         self.computer.release_all()
         self.computer.clear_stop()
         self.computer.clear_target()
+        try:
+            self.screen.clear_target_window()
+        except Exception:
+            pass
         if self.learning_enabled:
             try:
                 self.agent.game_learner.end_session()
@@ -679,7 +693,7 @@ class NariApp:
                 except Exception:
                     pass
 
-            frame = self.screen.latest()
+            frame = self.screen.latest_game()
             if frame is None:
                 time.sleep(0.03)
                 continue
