@@ -1,8 +1,8 @@
 {
-  "version": "5.5.2",
-  "tag": "v5.5.2",
+  "version": "5.5.3",
+  "tag": "v5.5.3",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-training-profile-2-fast-updaterfix"
+  "release_build": "jjs-camera-input-fix-3"
 }
