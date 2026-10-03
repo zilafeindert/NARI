@@ -20,6 +20,12 @@ if IS_WINDOWS:
     SW_MINIMIZE = 6
     INPUT_KEYBOARD = 1
     KEYEVENTF_KEYUP = 0x0002
+    KEYEVENTF_SCANCODE = 0x0008
+    MOUSEEVENTF_MOVE = 0x0001
+    MOUSEEVENTF_LEFTDOWN = 0x0002
+    MOUSEEVENTF_LEFTUP = 0x0004
+    MOUSEEVENTF_RIGHTDOWN = 0x0008
+    MOUSEEVENTF_RIGHTUP = 0x0010
     EXTRA_INFO_T = getattr(wintypes, "ULONG_PTR", ctypes.c_size_t)
 
     class KEYBDINPUT(ctypes.Structure):
@@ -224,10 +230,17 @@ class Computer:
         if not IS_WINDOWS:
             return
         vk = self._vk(key)
-        flags = 0 if down else KEYEVENTF_KEYUP
-        inp = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(
-            wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0
-        ))
+        scan = int(user32.MapVirtualKeyW(vk, 0))
+        if scan:
+            flags = KEYEVENTF_SCANCODE | (0 if down else KEYEVENTF_KEYUP)
+            inp = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(
+                wVk=0, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=0
+            ))
+        else:
+            flags = 0 if down else KEYEVENTF_KEYUP
+            inp = INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(
+                wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0
+            ))
         sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
         if sent != 1:
             raise RuntimeError(f"SendInput fallo para {key}")
@@ -245,6 +258,45 @@ class Computer:
         except Exception:
             if pyautogui:
                 pyautogui.keyUp(key)
+
+    def _mouse_button(self, button, down):
+        if not IS_WINDOWS:
+            return
+        b=str(button).lower()
+        if b=="right":
+            flag=MOUSEEVENTF_RIGHTDOWN if down else MOUSEEVENTF_RIGHTUP
+        elif b=="left":
+            flag=MOUSEEVENTF_LEFTDOWN if down else MOUSEEVENTF_LEFTUP
+        else:
+            raise ValueError(f"botón no soportado: {button}")
+        inp=INPUT(type=0,mi=MOUSEINPUT(dx=0,dy=0,mouseData=0,dwFlags=flag,time=0,dwExtraInfo=0))
+        sent=user32.SendInput(1,ctypes.byref(inp),ctypes.sizeof(INPUT))
+        if sent!=1:
+            raise RuntimeError(f"SendInput fallo para botón {button}")
+
+    def _mouse_move_rel(self, dx, dy):
+        if IS_WINDOWS:
+            inp=INPUT(type=0,mi=MOUSEINPUT(dx=int(dx),dy=int(dy),mouseData=0,dwFlags=MOUSEEVENTF_MOVE,time=0,dwExtraInfo=0))
+            sent=user32.SendInput(1,ctypes.byref(inp),ctypes.sizeof(INPUT))
+            if sent!=1:
+                raise RuntimeError("SendInput fallo para movimiento del ratón")
+        elif pyautogui:
+            pyautogui.moveRel(int(dx),int(dy),duration=0)
+
+    def camera_drag(self, dx, dy=0, seconds=0.18):
+        self.keep_target_focused()
+        self._mouse_button("right",True)
+        try:
+            steps=max(3,min(14,int(round(max(0.04,float(seconds))*50))))
+            sx=float(dx)/steps
+            sy=float(dy)/steps
+            delay=max(0.003,float(seconds)/steps)
+            for i in range(steps):
+                if self.stop_event: break
+                self._mouse_move_rel(round(sx),round(sy))
+                time.sleep(delay)
+        finally:
+            self._mouse_button("right",False)
 
     def act(self, action):
         if self.stop_event:
@@ -310,13 +362,16 @@ class Computer:
                 keys=[str(x) for x in action.get("keys",[])]
                 for key in keys: self._key_down(key)
                 for key in reversed(keys): self._key_up(key)
-            elif t == "mouse_move_rel":
-                if pyautogui:
-                    pyautogui.moveRel(
-                        int(action.get("dx",0)),
-                        int(action.get("dy",0)),
-                        duration=0
-                    )
+            elif t in {"mouse_move_rel","camera_drag","camera_turn"}:
+                dx=int(action.get("dx",0)); dy=int(action.get("dy",0))
+                if t in {"camera_drag","camera_turn"}:
+                    self.camera_drag(dx,dy,float(action.get("seconds",0.18)))
+                else:
+                    self._mouse_move_rel(dx,dy)
+            elif t == "mouse_button_down":
+                self._mouse_button(str(action.get("button","right")),True)
+            elif t == "mouse_button_up":
+                self._mouse_button(str(action.get("button","right")),False)
             elif t == "scroll":
                 if pyautogui: pyautogui.scroll(int(action.get("amount",0)))
             elif t == "wait":
