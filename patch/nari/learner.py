@@ -362,7 +362,7 @@ class GameLearner:
             if key == "space":
                 return "space"
             return f"press_{key or 'unknown'}"
-        if kind in {"mouse_move_rel","camera_drag","camera_turn"}:
+        if kind in {"mouse_move_rel","camera_drag","camera_turn","camera_key_turn"}:
             dx = float(action.get("dx", 0) or 0)
             dy = float(action.get("dy", 0) or 0)
             if abs(dx) > abs(dy):
