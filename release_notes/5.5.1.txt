@@ -1,0 +1,6 @@
+NARI 5.5.1
+- Reduce de forma importante la latencia del control de juego: el VLM respeta el modelo visual configurado, usa prediccion corta y no fuerza qwen3-vl:4b.
+- JJS ahora usa una recompensa especifica de combate: golpes, dano al rival, bloqueos y acercamiento suman; dano recibido, ataques desperdiciados, cooldown y estancamiento restan.
+- La camara de Roblox/JJS usa movimiento relativo Win32 con RMB drag mas compatible y rapido.
+- JJS usa hasta dos fotogramas recientes y una correccion local para recentrar al rival cuando la vision lo detecta fuera del centro.
+- Mantiene F8 como parada inmediata.
