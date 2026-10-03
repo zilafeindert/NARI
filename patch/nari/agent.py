@@ -220,20 +220,29 @@ class Agent:
         self.history += [{"role": "user", "content": text}, {"role": "assistant", "content": result.get("reply", "")}]
         return self._apply_memory_actions(result)
 
-    def vision(self, goal, images_b64, profile="generic"):
+    def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
         model = self._pick_vision_model()
+        hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
         system = (
             "/no_think\n"
             "Analiza solo lo visible y decide RAPIDO la siguiente accion util. "
             "No expliques el razonamiento. " + self._context() + "\n\n" + ACTION_HINT +
             "\nPERFIL: " + GAME_PROFILES.get(profile, GAME_PROFILES["generic"]) +
-            "\nOBJETIVO: " + str(goal)
+            "\nOBJETIVO: " + str(goal) +
+            "\nMEMORIA DE APRENDIZAJE: " + hint +
+            "\nACCION ANTERIOR: " + (previous_action or "ninguna") +
+            "\nEvalua la accion anterior con reward (-1..1) segun el resultado visible. "
+            "Cambia de estrategia cuando una accion se repita y no produzca progreso."
         )
-        msg = {"role": "user", "content": "Fotograma mas reciente del juego. Actua ahora.", "images": images_b64}
+        msg = {
+            "role": "user",
+            "content": "Fotograma mas reciente del juego. Elige la siguiente accion y evalua la anterior.",
+            "images": images_b64,
+        }
         try:
             return self._normalize(self._parse(self._call(
                 [{"role": "system", "content": system}, msg],
-                model, 8, 56, 1024
+                model, 8, 72, 1280
             )))
         except Exception as exc:
             return {"reply": "", "actions": [], "error": str(exc), "model": model}
