@@ -27,12 +27,15 @@ class ScreenVideo:
             time.sleep(max(0,period-(time.perf_counter()-t)))
     def latest(self):
         with self.lock:return None if self.latest_frame is None else self.latest_frame.copy()
-    def image_bytes(self,count=1):
+    def image_bytes(self,count=1,max_width=768):
         frame=self.latest()
         if frame is None:return [],None
         im=Image.fromarray(frame).convert("RGB")
+        if max_width and im.width>int(max_width):
+            ratio=float(max_width)/float(im.width)
+            im=im.resize((int(max_width),max(1,int(im.height*ratio))),Image.Resampling.BILINEAR)
         import io,base64
-        b=io.BytesIO(); im.save(b,format="JPEG",quality=68)
+        b=io.BytesIO(); im.save(b,format="JPEG",quality=55,optimize=True)
         return [base64.b64encode(b.getvalue()).decode()],time.time()
     def tk_image(self,max_w=790):
         f=self.latest()
