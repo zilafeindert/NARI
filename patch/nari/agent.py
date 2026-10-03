@@ -258,7 +258,7 @@ class Agent:
             "Eres un agente de juego en tiempo real. Observa solo la imagen actual. "
             "Toma una decisión deliberada, pero no expliques el razonamiento interno. "
             "Devuelve un plan corto de 1 a 3 acciones ordenadas que tengan sentido juntas. "
-            "JSON: {actions:[...],plan:"...",decision_note:"...",observation:"...",confidence:0.0}. "
+            'JSON: {actions:[...],plan:"...",decision_note:"...",observation:"...",confidence:0.0}. '
             "plan y decision_note deben ser resúmenes breves de la decisión, no cadena de pensamiento. "
             "No devuelvas código. Evita cambiar de dirección sin una razón visible. "
             "Mantén una acción de movimiento durante un tramo razonable. "
