@@ -77,6 +77,7 @@ class Computer:
         self.host_hwnd = None
         self.target_hwnd = None
         self.target_title = ""
+        self.shift_lock_active = False
         if pyautogui:
             pyautogui.PAUSE = 0.005
             pyautogui.FAILSAFE = True
@@ -100,6 +101,7 @@ class Computer:
     def clear_target(self):
         self.target_hwnd = None
         self.target_title = ""
+        self.shift_lock_active = False
 
     def _windows(self):
         if not IS_WINDOWS:
@@ -283,6 +285,22 @@ class Computer:
         elif pyautogui:
             pyautogui.moveRel(int(dx),int(dy),duration=0)
 
+    def toggle_shift_lock(self):
+        """Alterna el Shift Lock de Roblox cuando la experiencia lo permite."""
+        self.keep_target_focused()
+        self._win_key("shift", True)
+        self._win_key("shift", False)
+        self.shift_lock_active = not self.shift_lock_active
+        return self.shift_lock_active
+
+    def camera_turn(self, dx, dy=0, seconds=0.10):
+        """Gira la cámara usando Shift Lock si está activo; de lo contrario RMB."""
+        if self.shift_lock_active:
+            self.keep_target_focused()
+            self._mouse_move_rel(int(dx), int(dy))
+        else:
+            self.camera_drag(dx, dy, seconds)
+
     def camera_drag(self, dx, dy=0, seconds=0.18):
         self.keep_target_focused()
         self._mouse_button("right",True)
@@ -364,10 +382,15 @@ class Computer:
                 for key in reversed(keys): self._key_up(key)
             elif t in {"mouse_move_rel","camera_drag","camera_turn"}:
                 dx=int(action.get("dx",0)); dy=int(action.get("dy",0))
-                if t in {"camera_drag","camera_turn"}:
+                if t == "camera_turn":
+                    self.camera_turn(dx,dy,float(action.get("seconds",0.10)))
+                elif t == "camera_drag":
                     self.camera_drag(dx,dy,float(action.get("seconds",0.18)))
                 else:
                     self._mouse_move_rel(dx,dy)
+            elif t == "toggle_shift_lock":
+                active=self.toggle_shift_lock()
+                return "Shift Lock " + ("activado" if active else "desactivado")
             elif t == "mouse_button_down":
                 self._mouse_button(str(action.get("button","right")),True)
             elif t == "mouse_button_up":
