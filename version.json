@@ -1,8 +1,8 @@
 {
-  "version": "5.2.18",
-  "tag": "v5.2.18",
+  "version": "5.2.19",
+  "tag": "v5.2.19",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "runtime-syntax-fix-1"
+  "release_build": "private-decision-and-roblox-control-1"
 }
