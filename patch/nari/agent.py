@@ -243,10 +243,11 @@ class Agent:
         hint = self.game_learner.hint(profile, state_key or (str(profile) + ":none"))
         if profile == "roblox":
             controls = (
-                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT puede activar Shift Lock "
-                "si la experiencia lo permite; SHIFT+W correr; E interactuar; "
+                "Roblox: W/A/S/D mover; SPACE saltar; SHIFT+W correr; E interactuar; "
                 "Q/R/F/1/2/3 son teclas situacionales; click UI; "
-                "camera_drag = RMB mantenido + movimiento relativo."
+                "toggle_shift_lock intenta activar/desactivar Shift Lock una sola vez; "
+                "camera_turn usa Shift Lock si está activo y, si no, RMB + movimiento. "
+                "CTRL se puede usar solo si la experiencia lo requiere; no existe un Ctrl Lock universal."
             )
         else:
             controls = GAME_PROFILES.get(profile, GAME_PROFILES["generic"])
@@ -275,7 +276,7 @@ class Agent:
         try:
             result = self._normalize(self._parse(self._call(
                 [{"role":"system","content":system},msg],
-                model, 4.5, 56, 896
+                model, 3.5, 40, 768
             )))
 
             if profile == "roblox":
@@ -315,6 +316,39 @@ class Agent:
             return result
         except Exception as exc:
             return {"reply":"","actions":[],"error":str(exc),"model":model}
+
+    def autonomous_reflection(self):
+        """Genera una reflexión operativa breve para la memoria privada."""
+        model = self._pick_text_model()
+        system = (
+            "/no_think\n"
+            "Escribe una reflexión privada muy breve en español. "
+            "No hagas filosofía ni afirmes conciencia. "
+            "Resume una observación, una idea o una pequeña meta que NARI podría considerar. "
+            "Máximo 35 palabras y sin código."
+        )
+        prompt = (
+            "Estado actual: " + self._context() +
+            "\n¿Qué observación o idea concreta debería conservar como pensamiento privado?"
+        )
+        try:
+            raw=self._call(
+                [{"role":"system","content":system},{"role":"user","content":prompt}],
+                model, 8, 48, 768
+            )
+            value=self._clean_visible_reply(raw)
+            if value:
+                self.decisions.record(
+                    context="autonomous",
+                    goal="Reflexión privada",
+                    observation="",
+                    plan=value,
+                    decision="reflexión",
+                    confidence=0.55,
+                )
+            return value
+        except Exception:
+            return ""
 
     def decision_record(self, context, goal, result, decision):
         try:
