@@ -1,0 +1,7 @@
+NARI 5.2.0
+
+- Fuente oficial de actualizaciones: zilafeindert/NARI.
+- El repositorio oficial se usa por defecto.
+- NARI puede comprobar e instalar nuevas Releases automáticamente.
+- Las actualizaciones conservan data, models, voices, .venv y .env.
+- Se elimina la dependencia de una URL manual para el actualizador.
