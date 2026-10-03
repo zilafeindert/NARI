@@ -1,0 +1,11 @@
+NARI 5.2.9
+
+Aprendizaje adaptativo para juego.
+- Añade un aprendiz local persistente basado en recompensas, con política por estado visual.
+- NARI registra experiencias y ajusta sus preferencias de acción con exploración y corrección.
+- La visión visual recibe la memoria de juego anterior y puede devolver reward/progress/observation.
+- Si la visión falla o no devuelve una acción, el aprendiz mantiene la exploración en lugar de quedarse inmóvil.
+- La recompensa combina cambio visual y evaluación de la visión para corregir estrategias que no funcionan.
+- La memoria de aprendizaje se conserva en data/nari.db.
+- Se mejora el listener de voz: prueba varios dispositivos de entrada y tasas de muestreo y añade diagnóstico de micrófono.
+- F8 mantiene la parada global y se comprueba también dentro del hilo de juego.
