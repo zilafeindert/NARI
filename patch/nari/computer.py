@@ -280,28 +280,36 @@ class Computer:
     def _mouse_move_rel(self, dx, dy):
         dx, dy = int(dx), int(dy)
         if IS_WINDOWS:
-            # Primer metodo: desplazar el cursor real mediante SetCursorPos.
-            # Esto produce un cambio de posicion que Roblox puede convertir en
-            # MouseMovement/MouseDelta incluso cuando la camara usa cursor bloqueado.
-            try:
-                class POINT(ctypes.Structure):
-                    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
-
-                pt = POINT()
-                if user32.GetCursorPos(ctypes.byref(pt)):
-                    if user32.SetCursorPos(int(pt.x + dx), int(pt.y + dy)):
-                        return
-            except Exception:
-                pass
-
+            # Primero movimiento RELATIVO Win32. SetCursorPos queda como último
+            # recurso porque muchos juegos no convierten ese salto en MouseDelta.
             try:
                 user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
                 return
             except Exception:
-                inp=INPUT(type=0,mi=MOUSEINPUT(dx=dx,dy=dy,mouseData=0,dwFlags=MOUSEEVENTF_MOVE,time=0,dwExtraInfo=0))
+                pass
+            try:
+                inp=INPUT(
+                    type=0,
+                    mi=MOUSEINPUT(
+                        dx=dx, dy=dy, mouseData=0,
+                        dwFlags=MOUSEEVENTF_MOVE, time=0, dwExtraInfo=0
+                    )
+                )
                 sent=user32.SendInput(1,ctypes.byref(inp),ctypes.sizeof(INPUT))
-                if sent!=1:
-                    raise RuntimeError("SendInput fallo para movimiento del ratón")
+                if sent==1:
+                    return
+            except Exception:
+                pass
+            try:
+                class POINT(ctypes.Structure):
+                    _fields_=[("x",wintypes.LONG),("y",wintypes.LONG)]
+                pt=POINT()
+                if user32.GetCursorPos(ctypes.byref(pt)):
+                    user32.SetCursorPos(int(pt.x+dx),int(pt.y+dy))
+                    return
+            except Exception:
+                pass
+            raise RuntimeError("No pude enviar movimiento relativo del ratón")
         elif pyautogui:
             pyautogui.moveRel(dx,dy,duration=0)
 
@@ -344,25 +352,29 @@ class Computer:
 
     def camera_drag(self, dx, dy=0, seconds=0.08):
         self.keep_target_focused()
-        # Roblox necesita que el RMB se inicie dentro del viewport. El cursor
-        # puede haberse quedado encima de NARI, del chat o de otra ventana.
         self._center_cursor_in_target()
+        total=max(0.05, min(0.20, float(seconds)))
+        steps=max(6, min(16, int(round(total*90))))
+        sx=float(dx)/steps
+        sy=float(dy)/steps
         self._mouse_button("right", True)
         try:
-            total=max(0.05, min(0.16, float(seconds)))
-            # Dejamos que Roblox procese MouseButton2 antes del primer movimiento.
-            time.sleep(0.016)
-            steps=max(4, min(10, int(round(total*60))))
-            sx=float(dx)/steps
-            sy=float(dy)/steps
-            delay=max(0.002, total/steps*0.60)
+            # Darle tiempo a Roblox para registrar RMB antes del primer delta.
+            time.sleep(0.025)
             for _ in range(steps):
                 if self.stop_event:
                     break
-                self._mouse_move_rel(round(sx), round(sy))
-                time.sleep(delay)
+                mx=round(sx)
+                my=round(sy)
+                if mx==0 and dx:
+                    mx=1 if dx>0 else -1
+                if my==0 and dy:
+                    my=1 if dy>0 else -1
+                self._mouse_move_rel(mx,my)
+                time.sleep(max(0.003,total/steps*0.55))
         finally:
             self._mouse_button("right", False)
+            time.sleep(0.008)
 
     def act(self, action):
         if self.stop_event:
