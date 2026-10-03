@@ -551,8 +551,7 @@ class NariApp:
         )
         if profile == "jjs":
             goal += (
-                "
-PRIORIDAD JJS: localiza el Dummy de entrenamiento, "
+                "\nPRIORIDAD JJS: localiza el Dummy de entrenamiento, "
                 "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
             )
         self.game_target_title=title
@@ -681,6 +680,7 @@ PRIORIDAD JJS: localiza el Dummy de entrenamiento, "
         previous_note = ""
         previous_goal_state = ""
         last_decision_ui = 0.0
+        target_lost_cycles = 0
 
         while self.game_running:
             if __import__("sys").platform == "win32":
@@ -777,23 +777,43 @@ PRIORIDAD JJS: localiza el Dummy de entrenamiento, "
                 and str(x.get("type","")).lower() not in {"remember","social_update","self_update","drive_update","private_note","done"}
             ][:2]
 
-            # Correccion local de camara para JJS: si el VLM identifica un rival
-            # claramente fuera del centro, giramos hacia el rival sin esperar otro ciclo.
-            if profile == "jjs" and bool(result.get("target_visible", False)):
+            # Control local del objetivo JJS: el VLM detecta el Dummy y el
+            # ejecutivo corrige encuadre/acercamiento antes de dejar que ataque.
+            if profile == "jjs":
+                visible = bool(result.get("target_visible", False))
+                target_lost_cycles = 0 if visible else target_lost_cycles + 1
                 try:
                     target_x = float(result.get("target_center_x", 0.5) or 0.5)
-                    target_x = max(0.0, min(1.0, target_x))
-                    if abs(target_x - 0.5) > 0.10:
-                        dx = int(max(-230, min(230, (target_x - 0.5) * 620)))
-                        camera_fix = {
-                            "type": "camera_turn",
-                            "dx": dx,
-                            "dy": 0,
-                            "seconds": 0.055,
-                        }
-                        candidates = [camera_fix] + candidates
                 except Exception:
-                    pass
+                    target_x = 0.5
+                target_x = max(0.0, min(1.0, target_x))
+                try:
+                    distance = float(result.get("target_distance", 1.0) or 1.0)
+                except Exception:
+                    distance = 1.0
+                distance = max(0.0, min(1.0, distance))
+                target_name = str(result.get("target_name", "") or "").lower()
+                is_dummy = bool(result.get("target_is_dummy", False)) or "dummy" in target_name or "dummie" in target_name
+                centered = abs(target_x - 0.5) <= 0.09
+
+                if visible and not centered:
+                    dx = int(max(-260, min(260, (target_x - 0.5) * 760)))
+                    candidates = [{
+                        "type": "camera_turn",
+                        "dx": dx,
+                        "dy": 0,
+                        "seconds": 0.075,
+                    }] + candidates
+                elif visible and centered and is_dummy and distance <= 0.68 and not bool(result.get("cooldown_active", False)):
+                    candidates = [{"type": "m1", "seconds": 0.055}] + candidates
+                elif not visible and target_lost_cycles >= 3:
+                    sweep = -190 if ((self.game_cycle // 3) % 2 == 0) else 190
+                    candidates = [{
+                        "type": "camera_turn",
+                        "dx": sweep,
+                        "dy": 0,
+                        "seconds": 0.075,
+                    }] + candidates
 
             confidence = float(result.get("confidence", 0.0) or 0.0)
             action, source = self.agent.game_choose_action(candidates, confidence, self.game_cycle, frame)
