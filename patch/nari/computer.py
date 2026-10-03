@@ -330,6 +330,31 @@ class Computer:
         elif pyautogui:
             pyautogui.moveRel(dx,dy,duration=0)
 
+    def _cursor_inside_target(self):
+        """Comprueba si el puntero ya esta dentro del viewport del juego."""
+        if not IS_WINDOWS or not self.target_hwnd:
+            return False
+        try:
+            class POINT(ctypes.Structure):
+                _fields_=[("x",wintypes.LONG),("y",wintypes.LONG)]
+            rect=wintypes.RECT()
+            hwnd=wintypes.HWND(self.target_hwnd)
+            if not user32.GetClientRect(hwnd,ctypes.byref(rect)):
+                return False
+            origin=POINT(int(rect.left),int(rect.top))
+            if not user32.ClientToScreen(hwnd,ctypes.byref(origin)):
+                return False
+            cursor=POINT()
+            if not user32.GetCursorPos(ctypes.byref(cursor)):
+                return False
+            left=int(origin.x)
+            top=int(origin.y)
+            right=left+int(rect.right-rect.left)
+            bottom=top+int(rect.bottom-rect.top)
+            return left<=int(cursor.x)<right and top<=int(cursor.y)<bottom
+        except Exception:
+            return False
+
     def _center_cursor_in_target(self):
         """Coloca el cursor dentro del viewport del juego antes de un RMB drag."""
         if not IS_WINDOWS or not self.target_hwnd:
@@ -369,9 +394,12 @@ class Computer:
 
     def camera_drag(self, dx, dy=0, seconds=0.08):
         self.keep_target_focused()
-        self._center_cursor_in_target()
-        total=max(0.06, min(0.22, float(seconds)))
-        steps=max(8, min(22, int(round(total*110))))
+        # No recentrar en cada microgiro: hacerlo puede introducir movimiento
+        # artificial y jitter en la camara de Roblox.
+        if not self._cursor_inside_target():
+            self._center_cursor_in_target()
+        total=max(0.055, min(0.14, float(seconds)))
+        steps=max(4, min(10, int(round(total*70))))
         sx=float(dx)/steps
         sy=float(dy)/steps
         self._mouse_button("right", True)
@@ -391,13 +419,7 @@ class Computer:
                 time.sleep(max(0.004,total/steps*0.70))
         finally:
             self._mouse_button("right", False)
-            # Un pulso adicional sin RMB cubre experiencias que usan
-            # MouseBehavior/MouseLock en vez de cámara Classic.
-            try:
-                self._mouse_move_rel(int(dx*0.22), int(dy*0.22))
-            except Exception:
-                pass
-            time.sleep(0.008)
+            time.sleep(0.006)
 
     def act(self, action):
         if self.stop_event:
