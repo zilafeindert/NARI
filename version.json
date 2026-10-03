@@ -4,5 +4,5 @@
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "voice-model-bootstrap"
+  "release_build": "voice-model-bootstrap-2"
 }
