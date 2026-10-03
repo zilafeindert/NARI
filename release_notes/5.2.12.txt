@@ -1,0 +1,7 @@
+NARI 5.2.12
+
+Voz más diagnosticable y usable.
+- Añade “HABLAR AHORA” para iniciar una captura directa sin depender de la palabra de activación.
+- La captura directa usa el mismo stream y modelo Vosk ya activos.
+- Permite separar rápidamente un problema de reconocimiento de voz de un problema con la palabra “NARI”.
+- Se mantiene la transcripción por segmentos y la descarga automática del modelo español.
