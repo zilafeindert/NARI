@@ -1,0 +1,7 @@
+NARI 5.5.3
+- Refuerza el control de camara en Roblox/Jujutsu Shenanigans.
+- Antes de girar coloca el cursor dentro del viewport del juego.
+- El giro usa movimiento real de cursor con SetCursorPos mientras RMB esta presionado, con fallbacks Win32 adicionales.
+- Mantiene camera_key_turn mediante flechas como respaldo si el juego no acepta movimiento de mouse sintetico.
+- Agrega el boton PROBAR CAMARA para comprobar el giro sin iniciar el entrenamiento.
+- Mantiene F8 como parada inmediata.
