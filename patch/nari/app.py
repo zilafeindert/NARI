@@ -39,6 +39,16 @@ class NariApp:
         self.people = PeopleVision(MODELS / "vision")
         self.agent = Agent(self.memory, self.computer, web_search, self._status, self._token)
         self.agent.set_settings(self.settings)
+        # Cargar una pequeña ventana del historial persistente para mantener contexto
+        # al reiniciar, sin permitir acciones de borrado sobre el historial.
+        try:
+            self.agent.history = [
+                {"role": x["role"], "content": x["text"]}
+                for x in self.memory.chat_history(limit=12)
+                if x.get("role") in {"user", "assistant"}
+            ]
+        except Exception:
+            self.agent.history = []
         voice_name = self.settings.get("voice", "es_MX-claude-high")
         voice_file = VOICES / f"{voice_name}.onnx"
         self.tts = TTS(voice_file, self.settings.get("voice_enabled", True))
