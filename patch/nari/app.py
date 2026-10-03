@@ -785,6 +785,20 @@ class NariApp:
             # Control local del objetivo JJS: el VLM detecta el Dummy y el
             # ejecutivo corrige encuadre/acercamiento antes de dejar que ataque.
             if profile == "jjs":
+                marker = None
+                try:
+                    marker = self.screen.find_dummy_marker(frame)
+                except Exception:
+                    marker = None
+                if marker is not None:
+                    result["target_visible"] = True
+                    result["target_is_dummy"] = True
+                    result["target_center_x"] = float(marker["center_x"])
+                    result["target_center_y"] = float(marker["center_y"])
+                    result["target_name"] = "Dummy"
+                    if not result.get("target_distance"):
+                        result["target_distance"] = 0.55
+
                 visible = bool(result.get("target_visible", False))
                 target_lost_cycles = 0 if visible else target_lost_cycles + 1
                 try:
@@ -793,24 +807,33 @@ class NariApp:
                     target_x = 0.5
                 target_x = max(0.0, min(1.0, target_x))
                 try:
+                    target_y = float(result.get("target_center_y", 0.5) or 0.5)
+                except Exception:
+                    target_y = 0.5
+                target_y = max(0.0, min(1.0, target_y))
+                try:
                     distance = float(result.get("target_distance", 1.0) or 1.0)
                 except Exception:
                     distance = 1.0
                 distance = max(0.0, min(1.0, distance))
                 target_name = str(result.get("target_name", "") or "").lower()
                 is_dummy = bool(result.get("target_is_dummy", False)) or "dummy" in target_name or "dummie" in target_name
-                centered = abs(target_x - 0.5) <= 0.09
+                centered = abs(target_x - 0.5) <= 0.09 and abs(target_y - 0.5) <= 0.10
 
                 if visible and not centered:
                     dx = int(max(-260, min(260, (target_x - 0.5) * 760)))
+                    dy = int(max(-180, min(180, (target_y - 0.5) * 640)))
                     candidates = [{
                         "type": "camera_turn",
                         "dx": dx,
-                        "dy": 0,
+                        "dy": dy,
                         "seconds": 0.075,
                     }] + candidates
-                elif visible and centered and is_dummy and distance <= 0.68 and not bool(result.get("cooldown_active", False)):
-                    candidates = [{"type": "m1", "seconds": 0.055}] + candidates
+                elif visible and centered and is_dummy and not bool(result.get("cooldown_active", False)):
+                    if distance > 0.68:
+                        candidates = [{"type": "hold", "key": "w", "seconds": 0.24}] + candidates
+                    else:
+                        candidates = [{"type": "m1", "seconds": 0.055}] + candidates
                 elif not visible and target_lost_cycles >= 3:
                     sweep = -190 if ((self.game_cycle // 3) % 2 == 0) else 190
                     candidates = [{
