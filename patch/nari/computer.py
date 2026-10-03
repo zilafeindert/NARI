@@ -278,13 +278,20 @@ class Computer:
             raise RuntimeError(f"SendInput fallo para botón {button}")
 
     def _mouse_move_rel(self, dx, dy):
+        dx, dy = int(dx), int(dy)
         if IS_WINDOWS:
-            inp=INPUT(type=0,mi=MOUSEINPUT(dx=int(dx),dy=int(dy),mouseData=0,dwFlags=MOUSEEVENTF_MOVE,time=0,dwExtraInfo=0))
-            sent=user32.SendInput(1,ctypes.byref(inp),ctypes.sizeof(INPUT))
-            if sent!=1:
-                raise RuntimeError("SendInput fallo para movimiento del ratón")
+            # Roblox/JJS suele responder mejor al movimiento relativo clasico
+            # de Win32 mientras el boton derecho esta presionado.
+            try:
+                user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
+                return
+            except Exception:
+                inp=INPUT(type=0,mi=MOUSEINPUT(dx=dx,dy=dy,mouseData=0,dwFlags=MOUSEEVENTF_MOVE,time=0,dwExtraInfo=0))
+                sent=user32.SendInput(1,ctypes.byref(inp),ctypes.sizeof(INPUT))
+                if sent!=1:
+                    raise RuntimeError("SendInput fallo para movimiento del ratón")
         elif pyautogui:
-            pyautogui.moveRel(int(dx),int(dy),duration=0)
+            pyautogui.moveRel(dx,dy,duration=0)
 
     def toggle_shift_lock(self):
         """Alterna el Shift Lock de Roblox cuando la experiencia lo permite."""
@@ -294,23 +301,20 @@ class Computer:
         self.shift_lock_active = not self.shift_lock_active
         return self.shift_lock_active
 
-    def camera_turn(self, dx, dy=0, seconds=0.10):
-        """Gira la cámara usando Shift Lock si está activo; de lo contrario RMB."""
-        if self.shift_lock_active:
-            self.keep_target_focused()
-            self._mouse_move_rel(int(dx), int(dy))
-        else:
-            self.camera_drag(dx, dy, seconds)
+    def camera_turn(self, dx, dy=0, seconds=0.06):
+        """Gira la cámara con RMB, incluso si Shift Lock esta activo."""
+        self.camera_drag(dx, dy, seconds)
 
-    def camera_drag(self, dx, dy=0, seconds=0.18):
+    def camera_drag(self, dx, dy=0, seconds=0.06):
         self.keep_target_focused()
         self._mouse_button("right",True)
         try:
-            steps=max(3,min(14,int(round(max(0.04,float(seconds))*50))))
+            total=max(0.035, min(0.10, float(seconds)))
+            steps=max(2, min(6, int(round(total*35))))
             sx=float(dx)/steps
             sy=float(dy)/steps
-            delay=max(0.003,float(seconds)/steps)
-            for i in range(steps):
+            delay=max(0.0015, total/steps*0.20)
+            for _ in range(steps):
                 if self.stop_event: break
                 self._mouse_move_rel(round(sx),round(sy))
                 time.sleep(delay)
