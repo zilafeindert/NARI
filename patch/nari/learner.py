@@ -18,6 +18,7 @@ DEFAULT_ACTIONS = {
         "jump",
         "sprint_forward",
         "interact",
+        "toggle_shift_lock",
         "look_left",
         "look_right",
         "look_up",
@@ -232,9 +233,11 @@ class GameLearner:
         if key == "jump":
             return {"type": "press", "key": "space"}
         if key == "sprint_forward":
-            return {"type": "keys", "keys": ["shift","w"], "seconds": 0.50}
+            return {"type": "keys", "keys": ["shift","w"], "seconds": 0.55}
         if key == "interact":
             return {"type": "press", "key": "e"}
+        if key == "toggle_shift_lock":
+            return {"type": "press", "key": "shift"}
         if key == "look_left":
             return {"type": "camera_drag", "dx": -420, "dy": 0, "seconds": 0.12}
         if key == "look_right":
@@ -292,6 +295,27 @@ class GameLearner:
 
     def choose(self, profile: str, state: str, cycle: int = 0) -> dict:
         self._ensure_actions(profile, state)
+
+        # Para Roblox, el fallback no debe saltar de tecla en tecla de forma
+        # aleatoria. Usa un ciclo de exploración coherente y deja a la visión
+        # reemplazarlo cuando tenga una decisión.
+        if profile == "roblox":
+            sequence = (
+                "hold_w",
+                "look_right",
+                "hold_w",
+                "look_left",
+                "hold_w",
+                "jump",
+                "hold_w",
+                "sprint_forward",
+                "interact",
+            )
+            chosen = sequence[int(cycle) % len(sequence)]
+            self._last_action = chosen
+            self._last_state = state
+            self._last_action_ts = time.monotonic()
+            return self.action_from_key(chosen, profile, cycle)
         rows = self._rows(profile, state)
         if not rows:
             return self.action_from_key("wait", profile, cycle)
