@@ -237,15 +237,15 @@ class GameLearner:
         if key == "interact":
             return {"type": "press", "key": "e"}
         if key == "toggle_shift_lock":
-            return {"type": "press", "key": "shift"}
+            return {"type": "toggle_shift_lock"}
         if key == "look_left":
-            return {"type": "camera_drag", "dx": -420, "dy": 0, "seconds": 0.12}
+            return {"type": "camera_turn", "dx": -420, "dy": 0, "seconds": 0.10}
         if key == "look_right":
-            return {"type": "camera_drag", "dx": 420, "dy": 0, "seconds": 0.12}
+            return {"type": "camera_turn", "dx": 420, "dy": 0, "seconds": 0.10}
         if key == "look_up":
-            return {"type": "camera_drag", "dx": 0, "dy": -260, "seconds": 0.10}
+            return {"type": "camera_turn", "dx": 0, "dy": -260, "seconds": 0.09}
         if key == "look_down":
-            return {"type": "camera_drag", "dx": 0, "dy": 260, "seconds": 0.10}
+            return {"type": "camera_turn", "dx": 0, "dy": 260, "seconds": 0.09}
         if key == "click":
             return {"type": "click", "x": 500, "y": 500, "normalized": True}
         if key == "click_center":
