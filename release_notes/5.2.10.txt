@@ -1,0 +1,7 @@
+NARI 5.2.10
+
+Soluciona el modelo de voz faltante.
+- Si el modelo Vosk español no existe, NARI lo descarga automáticamente desde el sitio oficial de Vosk.
+- Se valida el ZIP antes de instalarlo.
+- No se toca data, modelos personales ni voces existentes.
+- Después de la instalación, NARI continúa iniciando el listener del micrófono.
