@@ -1,0 +1,6 @@
+NARI 5.5.9
+
+- JJS no longer allows free/random VLM camera turns when the Dummy is not evidenced.
+- VLM camera corrections require explicit Dummy visibility, Dummy identity and sufficient confidence.
+- VLM-guided target turns are smaller and rate-limited.
+- Local Dummy tracking remains the primary aiming authority.
