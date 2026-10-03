@@ -204,6 +204,53 @@ class GameLearner:
             return 0.0
 
     @staticmethod
+    def strict_reward(
+        raw_visual_reward: float,
+        action: dict,
+        action_effect: float = 0.0,
+        progress_delta: float = 0.0,
+        repeat_count: int = 0,
+        stagnation: int = 0,
+    ) -> float:
+        """Recompensa estricta: el cambio visual por si solo no cuenta como exito."""
+        raw = max(-0.45, min(0.55, float(raw_visual_reward)))
+        effect = max(-1.0, min(1.0, float(action_effect or 0.0)))
+        progress = max(-1.0, min(1.0, float(progress_delta or 0.0)))
+        key = GameLearner.action_key(action)
+        score = (0.25 * raw) + (0.55 * effect) + (0.20 * progress)
+
+        # Girar la camara puede producir mucho cambio visual sin acercarse
+        # al objetivo. Necesita evidencia explicita de que ayudo.
+        if key in {"look_left", "look_right"}:
+            score *= 0.30
+            if effect < 0.15 and progress < 0.15:
+                score -= 0.08
+
+        if key == "wait":
+            score -= 0.07
+
+        if key.startswith("hold_") and raw > 0.025 and effect >= 0:
+            score += 0.035
+
+        if effect >= 0.45:
+            score += 0.14
+        elif effect <= -0.45:
+            score -= 0.18
+
+        if progress >= 0.30:
+            score += 0.16
+        elif progress <= -0.30:
+            score -= 0.20
+
+        if repeat_count >= 2:
+            score -= min(0.25, 0.07 * repeat_count)
+
+        if stagnation >= 3:
+            score -= min(0.20, 0.04 * (stagnation - 2))
+
+        return max(-1.0, min(1.0, score))
+
+    @staticmethod
     def action_key(action: dict) -> str:
         if not isinstance(action, dict):
             return "none"
