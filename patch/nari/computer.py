@@ -84,6 +84,10 @@ class Computer:
     def clear_stop(self):
         self.stop_event = False
 
+    def clear_target(self):
+        self.target_hwnd = None
+        self.target_title = ""
+
     def _windows(self):
         if not IS_WINDOWS:
             return []
@@ -171,9 +175,13 @@ class Computer:
             return
         try:
             hwnd = int(user32.GetForegroundWindow())
-            if hwnd and hwnd != int(self.host_hwnd or 0):
-                self.target_hwnd = hwnd
-                self.target_title = self._window_title(hwnd)
+            if not hwnd or hwnd == int(self.host_hwnd or 0):
+                return
+            # Mientras existe un objetivo de juego, no sustituirlo por otra ventana.
+            if self.target_hwnd:
+                return
+            self.target_hwnd = hwnd
+            self.target_title = self._window_title(hwnd)
         except Exception:
             pass
 
