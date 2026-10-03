@@ -112,8 +112,12 @@ class NariApp:
             was_down = False
             while getattr(self, "global_hotkey_running", False):
                 down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_F8) & 0x8000)
-                if down and not was_down:
-                    self.root.after(0, self.emergency_stop)
+                if down and not was_down and self.game_running:
+                    self._emergency_stop_core()
+                    try:
+                        self.root.after(0, lambda: self._status("🛑 F8 • juego detenido"))
+                    except Exception:
+                        pass
                 was_down = down
                 time.sleep(0.035)
         except Exception as exc:
@@ -768,18 +772,28 @@ class NariApp:
         except Exception as e:
             self.root.after(0,lambda:messagebox.showerror("Actualizaciones",str(e)))
 
-    def emergency_stop(self):
+    def _emergency_stop_core(self):
         self.game_running=False
         try: self.computer.release_all()
         except Exception: pass
-        self.agent.stop()
-        self.computer.stop()
-        self._status("🛑 Parada inmediata")
-        try: self.game_status.set("DETENIDO")
+        try: self.agent.stop()
         except Exception: pass
+        try: self.computer.stop()
+        except Exception: pass
+        try:
+            if self.learning_enabled:
+                self.agent.game_learner.end_session()
+        except Exception:
+            pass
+
+    def emergency_stop(self):
+        self._emergency_stop_core()
         self._status("🛑 Parada inmediata")
-        try:self.game_status.set("DETENIDO")
-        except Exception:pass
+        try:
+            self.game_status.set("DETENIDO")
+            self.game_learning_status.set("Aprendizaje: sesión guardada")
+        except Exception:
+            pass
 
     def close(self):
         self.global_hotkey_running=False
