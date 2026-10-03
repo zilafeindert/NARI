@@ -140,15 +140,43 @@ class NariApp:
             ttk.Label(box, text=subtitle, background=PANEL, foreground=MUTED, wraplength=820).pack(anchor="w", pady=(5,0))
 
     def _make_chat(self):
-        f = ttk.Frame(self.content, style="Panel.TFrame", padding=16); self.frames["chat"] = f
-        self._section(f, "Conversación", "Escribe directamente o di «NARI». El micrófono queda escuchando en segundo plano y termina una frase tras ~3 s de silencio.")
-        self.chat = tk.Text(f, bg="#0e1118", fg=TEXT, insertbackground=TEXT, relief="flat", wrap="word", font=("Segoe UI",11), padx=14, pady=12)
-        self.chat.pack(fill="both", expand=True, pady=(6,10))
-        self.chat.tag_configure("me", foreground="#d49aff"); self.chat.tag_configure("nari", foreground="#78e9ff"); self.chat.tag_configure("sys", foreground="#8892a6")
-        bottom = ttk.Frame(f, style="Panel.TFrame"); bottom.pack(fill="x")
-        self.entry = ttk.Entry(bottom); self.entry.pack(side="left", fill="x", expand=True); self.entry.bind("<Return>", lambda e:self.send_text())
-        ttk.Button(bottom, text="Enviar", style="Accent.TButton", command=self.send_text).pack(side="left", padx=(8,0))
-        ttk.Label(f, text="🎙 Escuchando continuamente • activa con «NARI»", background=PANEL, foreground=MUTED).pack(anchor="w", pady=(8,0))
+        f = ttk.Frame(self.content, style="Panel.TFrame", padding=16)
+        self.frames["chat"] = f
+        self._section(f, "Chat", "Conversación estilo Discord. Los mensajes se guardan en esta sesión y NARI responde usando Ollama local.")
+
+        chat_wrap = ttk.Frame(f, style="Panel.TFrame")
+        chat_wrap.pack(fill="both", expand=True, pady=(6,10))
+
+        self.chat_canvas = tk.Canvas(chat_wrap, bg=PANEL, highlightthickness=0, bd=0)
+        self.chat_scroll = ttk.Scrollbar(chat_wrap, orient="vertical", command=self.chat_canvas.yview)
+        self.chat_canvas.configure(yscrollcommand=self.chat_scroll.set)
+        self.chat_scroll.pack(side="right", fill="y")
+        self.chat_canvas.pack(side="left", fill="both", expand=True)
+
+        self.chat_messages = tk.Frame(self.chat_canvas, bg=PANEL)
+        self.chat_window = self.chat_canvas.create_window((0,0), window=self.chat_messages, anchor="nw")
+
+        def on_messages(event=None):
+            self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+        def on_canvas(event):
+            self.chat_canvas.itemconfigure(self.chat_window, width=event.width)
+        self.chat_messages.bind("<Configure>", on_messages)
+        self.chat_canvas.bind("<Configure>", on_canvas)
+
+        def wheel(event):
+            try: self.chat_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            except Exception: pass
+        self.chat_canvas.bind_all("<MouseWheel>", wheel)
+
+        self.entry = ttk.Entry(f, font=("Segoe UI",11))
+        self.entry.pack(fill="x", pady=(0,8), ipady=4)
+        self.entry.bind("<Return>", lambda e:self.send_text())
+        send_row = ttk.Frame(f, style="Panel.TFrame")
+        send_row.pack(fill="x")
+        ttk.Label(send_row, text="Enter = enviar  •  voz: di «NARI»", background=PANEL, foreground=MUTED).pack(side="left")
+        ttk.Button(send_row, text="Enviar", style="Accent.TButton", command=self.send_text).pack(side="right")
+
+        self._append_chat("NARI", "¡Hola! Ya estoy aquí. ✨", "nari")
 
     def _make_game(self):
         f = ttk.Frame(self.content, style="Panel.TFrame", padding=16); self.frames["game"] = f
@@ -212,7 +240,36 @@ class NariApp:
 
     def _append_chat(self, speaker, text, tag):
         def add():
-            self.chat.insert("end", f"{speaker}: ", tag); self.chat.insert("end", text + "\n\n"); self.chat.see("end")
+            parent = self.chat_messages
+            row = tk.Frame(parent, bg=PANEL)
+            row.pack(fill="x", padx=12, pady=(2,7))
+
+            mine = speaker == "Tú"
+            side = "right" if mine else "left"
+            bubble_bg = "#252b38" if mine else "#1b2432"
+            name_fg = "#d49aff" if mine else "#78e9ff"
+
+            holder = tk.Frame(row, bg=PANEL)
+            holder.pack(anchor=side)
+            bubble = tk.Frame(holder, bg=bubble_bg, bd=0, highlightthickness=0)
+
+            head = tk.Frame(bubble, bg=bubble_bg)
+            head.pack(fill="x", padx=12, pady=(8,0))
+            tk.Label(head, text=speaker, bg=bubble_bg, fg=name_fg,
+                     font=("Segoe UI",9,"bold")).pack(side="left")
+            tk.Label(head, text=time.strftime("%H:%M"), bg=bubble_bg, fg=MUTED,
+                     font=("Segoe UI",8)).pack(side="left", padx=(8,0))
+
+            tk.Label(
+                bubble, text=str(text), bg=bubble_bg, fg=TEXT,
+                justify="left", anchor="w", wraplength=680,
+                font=("Segoe UI",10), padx=12, pady=8
+            ).pack(fill="x")
+
+            bubble.pack()
+            self.chat_canvas.update_idletasks()
+            self.chat_canvas.configure(scrollregion=self.chat_canvas.bbox("all"))
+            self.chat_canvas.yview_moveto(1.0)
         self.root.after(0, add)
 
     def _status(self, value):
@@ -220,13 +277,13 @@ class NariApp:
         except Exception: pass
 
     def _token(self, token):
-        self._status("NARI está pensando…")
+        pass
 
     def _run_agent(self, text, from_voice=False):
         if self.busy: return
         self.busy = True
         self._append_chat("Tú", text, "me")
-        self._status("NARI está pensando…")
+        self._status("Conectado • NARI responde en local")
         threading.Thread(target=self._agent_thread, args=(text,), daemon=True).start()
 
     def _agent_thread(self, text):
@@ -299,38 +356,68 @@ class NariApp:
         self.game_running=False; self.computer.stop(); self.computer.clear_stop(); self.game_status.set("Detenido"); self._status("🎮 Juego detenido")
 
     def _game_loop(self,profile:str):
-        goal=self.game_goal.get().strip() or "Juega por tu cuenta y aprende los controles del entorno."
-        min_interval=max(0.20,1.0/max(0.5,float(self.settings.get("game_inference_fps",3.0))))
+        goal=self.game_goal.get().strip() or "Explora el juego, aprende los controles y actúa de forma continua."
+        min_interval=max(0.35,1.0/max(0.5,float(self.settings.get("game_inference_fps",2.0))))
         next_allowed=0.0
+
         while self.game_running:
             self.computer.track_foreground()
             now=time.perf_counter()
             frame=self.screen.latest()
             if frame is None:
-                time.sleep(.02); continue
-            if now>=next_allowed and not self.game_infer_lock.locked():
+                time.sleep(.03)
+                continue
+
+            if now >= next_allowed and not self.game_infer_lock.locked():
                 with self.game_infer_lock:
                     imgs,latest=self.screen.image_bytes(1)
                     if not imgs or latest is None:
                         continue
-                    self.game_cycle+=1
-                    try:result=self.agent.vision(goal,imgs,profile=profile)
-                    except Exception as e:result={"actions":[],"reply":"","error":str(e)}
-                    if not result.get("error") and not result.get("actions") and profile=="roblox" and self.game_cycle % 3 == 0:
-                        result["actions"]=[{"type":"hold","key":"w","seconds":0.18}]
-                        result["reply"]="Explorando…"
+                    self.game_cycle += 1
+
+                    try:
+                        result=self.agent.vision(goal,imgs,profile=profile)
+                    except Exception as e:
+                        result={"actions":[],"reply":"","error":str(e)}
+
+                    # Si el modelo visual tarda/falla, mantener un reflejo básico
+                    # para que el juego no se quede completamente inmóvil.
+                    actions=result.get("actions") or []
+                    if not result.get("error") and not actions and profile in {"roblox","generic"}:
+                        phase=self.game_cycle % 8
+                        if phase in {0,1,2,3,4}: 
+                            actions=[{"type":"hold","key":"w","seconds":0.22}]
+                        elif phase == 5:
+                            actions=[{"type":"hold","key":"a","seconds":0.16}]
+                        elif phase == 6:
+                            actions=[{"type":"hold","key":"d","seconds":0.16}]
+                        else:
+                            actions=[{"type":"press","key":"space"}]
+                        result["actions"]=actions
+                        result["reply"]="Explorando el entorno…"
+
                     if result.get("error"):
-                        self._status("⚠ visión: "+str(result["error"])[:100])
+                        self._status("⚠ visión: "+str(result["error"])[:110])
+                        if profile in {"roblox","generic"}:
+                            self.computer.act({"type":"hold","key":"w","seconds":0.20})
                     else:
-                        reply=str(result.get("reply","")).strip()
                         action_summary=self.agent.execute_actions(result,True)
-                        if reply and self.game_cycle%2==0:self._append_chat("NARI","🎮 "+reply,"nari")
+                        reply=str(result.get("reply","")).strip()
+                        if reply and self.game_cycle % 2 == 0:
+                            self._append_chat("NARI","🎮 "+reply,"nari")
                         if action_summary:
-                            self.memory.add_episode("game",f"{profile} • ciclo {self.game_cycle}",action_summary,reply or "acción ejecutada")
+                            self.memory.add_episode(
+                                "game", f"{profile} • ciclo {self.game_cycle}",
+                                action_summary, reply or "acción ejecutada"
+                            )
+
                     next_allowed=time.perf_counter()+min_interval
             else:
                 time.sleep(.015)
-            self.game_status.set(f"ACTIVO • {profile} • {self.game_cycle} • foco: {self.game_target_title}")
+
+            self.game_status.set(
+                f"ACTIVO • {profile} • {self.game_cycle} • foco: {self.game_target_title}"
+            )
 
     def _refresh_ui(self):
         self.computer.track_foreground()
