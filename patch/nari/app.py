@@ -732,7 +732,7 @@ class NariApp:
         opponent_attacking=flag("opponent_attacking")
         player_stunned=flag("player_stunned")
         player_ragdolled=flag("player_ragdolled")
-        player_dead=flag("player_dead") or flag("death_or_ko")
+        player_dead=flag("player_dead")
 
         if hit:
             self.jjs_confirmed_hits=min(8,self.jjs_confirmed_hits+1)
