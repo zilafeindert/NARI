@@ -1,0 +1,8 @@
+NARI 5.2.1
+
+Corrección de recuperación de aplicación.
+
+- Restaura nari/app.py, que faltaba en algunas instalaciones después de la actualización 5.2.0.
+- Mantiene la fuente oficial de actualizaciones: zilafeindert/NARI.
+- Actualiza el número interno a 5.2.1.
+- Conserva memoria, modelos, voces, .venv y .env.
