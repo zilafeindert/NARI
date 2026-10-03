@@ -310,6 +310,13 @@ class Computer:
                 keys=[str(x) for x in action.get("keys",[])]
                 for key in keys: self._key_down(key)
                 for key in reversed(keys): self._key_up(key)
+            elif t == "mouse_move_rel":
+                if pyautogui:
+                    pyautogui.moveRel(
+                        int(action.get("dx",0)),
+                        int(action.get("dy",0)),
+                        duration=0
+                    )
             elif t == "scroll":
                 if pyautogui: pyautogui.scroll(int(action.get("amount",0)))
             elif t == "wait":
