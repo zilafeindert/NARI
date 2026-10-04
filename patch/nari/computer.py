@@ -95,17 +95,18 @@ class Computer:
         self.stop_event = False
 
     def release_all(self):
-        for key in ("w","a","s","d","shift","space","ctrl","alt"):
-            try:
-                self._key_up(key)
-            except Exception:
-                pass
-        if IS_WINDOWS:
-            for button in ("left","right"):
+        with self.mouse_lock:
+            for key in ("w","a","s","d","shift","space","ctrl","alt"):
                 try:
-                    self._mouse_button(button, False)
+                    self._key_up(key)
                 except Exception:
                     pass
+            if IS_WINDOWS:
+                for button in ("left","right"):
+                    try:
+                        self._mouse_button(button, False)
+                    except Exception:
+                        pass
 
     def clear_target(self):
         self.target_hwnd = None
