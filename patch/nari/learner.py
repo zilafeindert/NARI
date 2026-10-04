@@ -164,34 +164,66 @@ class GameLearner:
 
     @staticmethod
     def state_key(frame, profile="generic") -> str:
+        """Estado visual compacto con informacion espacial y una pista del marcador."""
         if frame is None:
             return f"{profile}:none"
         try:
-            arr = np.asarray(frame)
-            if arr.ndim == 3:
-                gray = arr.astype(np.float32).mean(axis=2)
+            arr=np.asarray(frame)
+            if arr.ndim==2:
+                rgb=np.repeat(arr[...,None],3,axis=2).astype(np.float32)
             else:
-                gray = arr.astype(np.float32)
+                rgb=arr[...,:3].astype(np.float32)
 
-            h, w = gray.shape[:2]
-            if h > 48 or w > 64:
-                ys = np.linspace(0, h - 1, 48).astype(np.int32)
-                xs = np.linspace(0, w - 1, 64).astype(np.int32)
-                gray = gray[np.ix_(ys, xs)]
+            h,w=rgb.shape[:2]
+            if h<8 or w<8:
+                return f"{profile}:tiny"
 
-            mean = float(gray.mean())
-            std = float(gray.std())
-            dark = float((gray < 55).mean())
-            bright = float((gray > 190).mean())
+            gray=rgb.mean(axis=2)
+            ys=np.linspace(0,h-1,36).astype(np.int32)
+            xs=np.linspace(0,w-1,48).astype(np.int32)
+            small=gray[np.ix_(ys,xs)]
 
-            # Cuantización deliberada: permite generalizar entre fotogramas parecidos.
+            mean=float(small.mean())
+            std=float(small.std())
+            dark=float((small<55).mean())
+            bright=float((small>190).mean())
+
+            # Estadisticas espaciales 3x4: evita que escenarios visualmente distintos
+            # compartan el mismo estado solo por tener promedio parecido.
+            spatial=[]
+            for ry in range(3):
+                y0=(ry*h)//3
+                y1=((ry+1)*h)//3
+                for rx in range(4):
+                    x0=(rx*w)//4
+                    x1=((rx+1)*w)//4
+                    cell=gray[y0:y1,x0:x1]
+                    spatial.append(int(max(0,min(15,float(cell.mean())/16.0))))
+
+            # Pista barata del verde: porcentaje, centro X/Y. Solo sirve como contexto
+            # para el Dummy; no declara por si misma que exista un objetivo.
+            r=rgb[:,:,0]
+            g=rgb[:,:,1]
+            b=rgb[:,:,2]
+            green=((g>90)&(g>r*1.18)&(g>b*1.05))
+            green_ratio=float(green.mean())
+            green_y,green_x=np.where(green)
+            if green_x.size:
+                gx=float(green_x.mean()/max(1,w))
+                gy=float(green_y.mean()/max(1,h))
+            else:
+                gx=gy=0.5
+
             return (
                 f"{profile}:"
-                f"m{int(mean // 16):02d}:"
-                f"s{int(std // 16):02d}:"
-                f"d{int(dark * 10):02d}:"
-                f"b{int(bright * 10):02d}:"
-                f"q{int((w / max(h,1)) * 10):02d}"
+                f"m{int(mean//16):02d}:"
+                f"s{int(std//16):02d}:"
+                f"d{int(dark*10):02d}:"
+                f"b{int(bright*10):02d}:"
+                f"sp{''.join(format(x,'x') for x in spatial)}:"
+                f"gr{int(min(99.0,green_ratio*1000)):02d}:"
+                f"gx{int(gx*20):02d}:"
+                f"gy{int(gy*20):02d}"
             )
         except Exception:
             return f"{profile}:unknown"
@@ -299,11 +331,14 @@ class GameLearner:
                 return float(default)
 
         def flag(name):
-            return bool(result.get(name, False))
+            value=result.get(name,False)
+            if isinstance(value,str):
+                return value.strip().lower() in {"true","1","yes","si","sí","y"}
+            return bool(value)
 
         hit = flag("hit_confirmed")
         block = flag("block_success")
-        ko = flag("ko_confirmed") or flag("death_or_ko")
+        ko = flag("ko_confirmed")
         whiff = flag("ability_whiff")
         cooldown = flag("cooldown_active")
         target_visible = flag("target_visible")
@@ -366,8 +401,7 @@ class GameLearner:
         # Ganar el intercambio importa mucho mas que cualquier microseñal visual.
         if ko:
             score += 1.25
-        if flag("death_or_ko") and not ko:
-            score -= 1.25
+        # player_dead es la señal de derrota propia y se trata por separado.
 
         # Golpear a alguien que esta bloqueando con M1 es mala informacion:
         # no queremos que el aprendizaje descubra un "autopilot" infinito.
