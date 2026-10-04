@@ -42,6 +42,13 @@ class Agent:
 
     def set_settings(self, settings):
         self.settings = settings or {}
+        try:
+            self.game_brain.exploration_rate=max(
+                0.0,
+                min(0.30,float(self.settings.get("learning_exploration",0.06) or 0.06))
+            )
+        except Exception:
+            self.game_brain.exploration_rate=0.06
 
     def stop(self):
         self.stop_event.set()
