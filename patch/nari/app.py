@@ -1,5 +1,7 @@
 from __future__ import annotations
 import json
+import os
+import sys
 import subprocess
 import threading
 import time
@@ -1013,7 +1015,6 @@ class NariApp:
                 except Exception:
                     pass
 
-            vlm_dummy=False
             candidates = [
                 x for x in (result.get("actions") or [])
                 if isinstance(x, dict)
@@ -1255,6 +1256,21 @@ class NariApp:
             except Exception as exc:
                 exec_result = "ERROR: " + str(exc)
 
+            execution_failed = str(exec_result).startswith("ERROR:")
+            if execution_failed and self.learning_enabled:
+                try:
+                    self.agent.game_record(
+                        profile, state, action, -0.95, "execution-error",
+                        str(exec_result)[:300],
+                    )
+                    self.agent.game_feedback(
+                        observation="", action=action, reward=-0.95,
+                        confidence=confidence, note="execution-error",
+                        goal_state="",
+                    )
+                except Exception:
+                    pass
+
             decision = self.agent.game_learner.action_key(action)
             decision_note = str(result.get("decision_note", "") or "")
             observation = str(result.get("observation", "") or "")
@@ -1265,13 +1281,22 @@ class NariApp:
             if str(action.get("type","")).lower() not in {"camera_turn","camera_drag","camera_key_turn"}:
                 self.jjs_last_camera_command=None
 
-            previous_action = action
-            previous_state = state
-            previous_frame = frame.copy()
-            previous_confidence = confidence
-            previous_observation = observation
-            previous_note = decision_note or source
-            previous_goal_state = goal_state
+            if execution_failed:
+                previous_action = None
+                previous_state = ""
+                previous_frame = None
+                previous_confidence = 0.0
+                previous_observation = ""
+                previous_note = "execution-error"
+                previous_goal_state = ""
+            else:
+                previous_action = action
+                previous_state = state
+                previous_frame = frame.copy()
+                previous_confidence = confidence
+                previous_observation = observation
+                previous_note = decision_note or source
+                previous_goal_state = goal_state
 
             stats = self.agent.game_stats(profile) if self.learning_enabled else {"experiences":0,"avg_reward":0.0}
             status_text = (
@@ -1432,16 +1457,53 @@ class NariApp:
         threading.Thread(target=work,daemon=True).start()
 
     def _offer_update(self, info):
-        latest=str(info.get("version",APP_VERSION)); notes=str(info.get("notes", ""))[:500]
-        if messagebox.askyesno("NARI: actualización disponible",f"NARI {latest} está disponible.\n\n{notes}\n\n¿Actualizar?"):
-            try:
-                marker=DATA/"pending_update.json"
-                marker.write_text(json.dumps({"zip_url":info.get("zip_url",""),"version":latest},ensure_ascii=False),encoding="utf-8")
-                launcher=ROOT/"NARI_ACTUALIZAR_Y_REINICIAR.bat"
-                subprocess.Popen(["cmd","/c",str(launcher)],cwd=str(ROOT),creationflags=getattr(subprocess,"CREATE_NEW_CONSOLE",0))
-                self.root.after(400,self.close)
-            except Exception as e:
-                messagebox.showerror("NARI",str(e))
+        latest=str(info.get("version",APP_VERSION))
+        notes=str(info.get("notes", ""))[:500]
+        if not messagebox.askyesno(
+            "NARI: actualización disponible",
+            f"NARI {latest} está disponible.\n\n{notes}\n\n¿Actualizar?"
+        ):
+            return
+
+        try:
+            zip_url=str(info.get("zip_url","") or "")
+            if not zip_url:
+                raise ValueError("La versión publicada no contiene un ZIP de actualización.")
+
+            pid=os.getpid()
+            python=sys.executable
+            restart_parts=[python]+sys.argv
+            restart_cmd=subprocess.list2cmdline(restart_parts)
+
+            update_code=(
+                "from nari.updater import apply; "
+                f"apply({zip_url!r}, {latest!r})"
+            )
+            update_cmd=subprocess.list2cmdline([python,"-c",update_code])
+
+            launcher=ROOT/"NARI_ACTUALIZAR_Y_REINICIAR.bat"
+            launcher.write_text(
+                "@echo off\r\n"
+                "cd /d " + subprocess.list2cmdline([str(ROOT)]) + "\r\n"
+                ":wait_nari\r\n"
+                f'tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL\r\n'
+                'if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait_nari)\r\n'
+                update_cmd + "\r\n"
+                'if errorlevel 1 (echo Error actualizando NARI. & pause & exit /b 1)\r\n'
+                "start "" " + restart_cmd + "\r\n"
+                'del "%~f0"\r\n',
+                encoding="utf-8",
+                newline="",
+            )
+
+            subprocess.Popen(
+                ["cmd","/c",str(launcher)],
+                cwd=str(ROOT),
+                creationflags=getattr(subprocess,"CREATE_NEW_CONSOLE",0),
+            )
+            self.root.after(250,self.close)
+        except Exception as e:
+            messagebox.showerror("NARI",str(e))
 
     def _check_update(self):
         repo=str(self.settings.get("github_repo","zilafeindert/NARI")).strip() or "zilafeindert/NARI"
