@@ -1094,7 +1094,8 @@ class NariApp:
             return False
 
         visible=bool(result.get("target_visible",False))
-        is_dummy=bool(result.get("target_is_dummy",False))
+        target_name=str(result.get("target_name","") or "").strip().lower()
+        is_dummy=bool(result.get("target_is_dummy",False)) or target_name=="dummy" or "dummy" in target_name
         if not visible or not is_dummy:
             self.jjs_vlm_dummy_hits=0
             self.jjs_vlm_dummy_center=None
@@ -1130,7 +1131,8 @@ class NariApp:
         self.jjs_vlm_dummy_center=center
         self.jjs_vlm_dummy_ts=now
 
-        if self.jjs_vlm_dummy_hits<2:
+        required_hits=1 if confidence>=0.72 else 2
+        if self.jjs_vlm_dummy_hits<required_hits:
             return False
 
         try:
@@ -1286,7 +1288,11 @@ class NariApp:
             local_dummy=False
             if profile == "jjs":
                 marker_stable,local_dummy=self._jjs_apply_target_telemetry(result)
-                if not local_dummy:
+                if local_dummy:
+                    self.jjs_vlm_dummy_hits=0
+                    self.jjs_vlm_dummy_center=None
+                    self.jjs_vlm_dummy_ts=0.0
+                else:
                     local_dummy=self._jjs_vlm_dummy_fallback(result)
                     marker_stable=marker_stable or local_dummy
 
