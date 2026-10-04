@@ -501,10 +501,11 @@ class Agent:
             int(stagnation),
         )
 
-    def game_choose_action(self, actions, confidence=0.0, cycle=0, frame=None):
-        # El ejecutivo local es la ultima barrera contra bucles de dos acciones.
-        # La percepcion puede proponer alternativas; solo una llega al dispositivo.
-        chosen, source = self.game_brain.arbitrate(actions, confidence, cycle)
+    def game_choose_action(self, actions, confidence=0.0, cycle=0, frame=None, state_key=""):
+        # El ejecutivo local combina la propuesta visual con el valor aprendido.
+        chosen, source = self.game_brain.arbitrate(
+            actions, confidence, cycle, state_key=state_key
+        )
         return self.game_validate_action(chosen), source
 
     def game_state_key(self, frame, profile="generic"):
