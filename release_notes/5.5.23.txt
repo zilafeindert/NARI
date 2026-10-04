@@ -1,0 +1,8 @@
+NARI 5.5.23
+
+JJS M1 input fix.
+
+- Before M1, NARI now re-centers the cursor inside the actual Roblox client viewport.
+- This prevents camera-relative mouse movement from leaving the attack click outside the game window.
+- PyAutoGUI is preferred for the left-button press/release with a direct SendInput fallback.
+- Keeps the deterministic Dummy attack transition from 5.5.22.
