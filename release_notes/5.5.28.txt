@@ -1,0 +1,10 @@
+NARI 5.5.28
+
+JJS acquisition and attack fallback.
+
+- Fixed the dedicated target scanner being too restrictive on JSON output length.
+- Reduced target-scan response to a minimal schema and kept enough output budget to prevent truncation.
+- Scanner now analyzes the latest game frame directly for lower latency.
+- When no target is recognized, NARI actively advances and attacks while reacquiring instead of remaining idle.
+- Search mode also makes controlled camera sweeps.
+- Human targets use the same advance_m1 pressure once centered.
