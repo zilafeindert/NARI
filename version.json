@@ -1,8 +1,8 @@
 {
-  "version": "5.5.16",
-  "tag": "v5.5.16",
+  "version": "5.5.17",
+  "tag": "v5.5.17",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "full-audit-camera-combat-infra-18"
+  "release_build": "post-audit-build-fix-19"
 }
