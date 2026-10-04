@@ -100,6 +100,15 @@ class NariApp:
         self.jjs_human_center_smooth = None
         self.jjs_human_stable_hits = 0
         self.jjs_human_prev_aim_error = None
+        self.jjs_human_center_ts = 0.0
+        self.jjs_camera_running = False
+        self.jjs_camera_thread = None
+        self.jjs_camera_state_lock = threading.RLock()
+        self.jjs_camera_target = None
+        self.jjs_camera_target_ts = 0.0
+        self.jjs_camera_last_move_ts = 0.0
+        self.jjs_camera_search_direction = 1
+        self.jjs_camera_search_next_ts = 0.0
         self.jjs_camera_x_sign = 1
         self.jjs_camera_y_sign = 1
         self.jjs_last_camera_command = None
@@ -591,6 +600,13 @@ class NariApp:
         self.jjs_human_center_smooth=None
         self.jjs_human_stable_hits=0
         self.jjs_human_prev_aim_error=None
+        self.jjs_human_center_ts=0.0
+        self.jjs_camera_running=False
+        self.jjs_camera_target=None
+        self.jjs_camera_target_ts=0.0
+        self.jjs_camera_last_move_ts=0.0
+        self.jjs_camera_search_direction=1
+        self.jjs_camera_search_next_ts=0.0
         self.jjs_camera_x_sign=1
         self.jjs_camera_y_sign=1
         self.jjs_last_camera_command=None
@@ -614,6 +630,8 @@ class NariApp:
             self._status("⚠️ La ventana del juego perdió el foco; intentando continuar.")
         self.computer.minimize_host()
         self.game_running=True
+        if profile == "jjs":
+            self._start_jjs_camera_controller()
         self.game_cycle=0
         self.last_game_frame_ts=0.0
         self.last_learning_frame=None
@@ -691,6 +709,7 @@ class NariApp:
 
     def stop_game(self):
         self.game_running=False
+        self._stop_jjs_camera_controller()
         self.computer.stop()
         self.computer.release_all()
         self.computer.clear_stop()
@@ -720,6 +739,179 @@ class NariApp:
         # No se usa una segunda cola de acciones.
         while self.game_running:
             time.sleep(0.25)
+
+    def _start_jjs_camera_controller(self):
+        if self.jjs_camera_running and self.jjs_camera_thread and self.jjs_camera_thread.is_alive():
+            return
+        self.jjs_camera_running=True
+        self.jjs_camera_thread=threading.Thread(
+            target=self._jjs_camera_loop,
+            daemon=True,
+            name="NARI-JJS-camera",
+        )
+        self.jjs_camera_thread.start()
+
+    def _stop_jjs_camera_controller(self):
+        self.jjs_camera_running=False
+
+    def _jjs_camera_loop(self):
+        smooth=None
+        stable_hits=0
+        previous_distance=None
+        previous_error=None
+
+        while self.game_running and self.jjs_camera_running:
+            frame=self.screen.latest_game()
+            if frame is None:
+                time.sleep(0.03)
+                continue
+
+            now=time.monotonic()
+            marker=None
+            try:
+                marker=self.screen.find_dummy_marker(frame)
+            except Exception:
+                marker=None
+
+            target=None
+            if marker is not None:
+                raw=(float(marker["center_x"]),float(marker["center_y"]))
+                if smooth is None:
+                    smooth=raw
+                    stable_hits=1
+                else:
+                    jump=((raw[0]-smooth[0])**2+(raw[1]-smooth[1])**2)**0.5
+                    if jump<=0.22:
+                        smooth=(smooth[0]*0.70+raw[0]*0.30,
+                                smooth[1]*0.70+raw[1]*0.30)
+                        stable_hits=min(10,stable_hits+1)
+                    else:
+                        smooth=raw
+                        stable_hits=1
+
+                marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
+                size_ratio=marker_size/max(1,frame.shape[1])
+                if size_ratio<0.022:
+                    distance=0.90
+                elif size_ratio<0.035:
+                    distance=0.76
+                elif size_ratio<0.052:
+                    distance=0.58
+                else:
+                    distance=0.38
+
+                error=((smooth[0]-0.5)**2+(smooth[1]-0.5)**2)**0.5
+                aim_delta=None if previous_error is None else previous_error-error
+                dist_delta=None if previous_distance is None else distance-previous_distance
+                previous_error=error
+                previous_distance=distance
+
+                target={
+                    "kind":"dummy",
+                    "center_x":smooth[0],
+                    "center_y":smooth[1],
+                    "distance":distance,
+                    "distance_delta":dist_delta,
+                    "aim_alignment_delta":aim_delta,
+                    "stable":stable_hits>=2,
+                    "seen_ts":now,
+                }
+
+                with self.jjs_camera_state_lock:
+                    self.jjs_camera_target=target
+                    self.jjs_camera_target_ts=now
+
+                centered=abs(smooth[0]-0.5)<=0.070 and abs(smooth[1]-0.5)<=0.085
+                if target["stable"] and not centered:
+                    elapsed=now-self.jjs_camera_last_move_ts
+                    if elapsed>=0.20:
+                        ex=smooth[0]-0.5
+                        ey=smooth[1]-0.5
+                        dx=max(-68,min(68,int(ex*390)))
+                        dy=max(-50,min(50,int(ey*290)))
+                        if abs(ex)>0.070 and abs(dx)<8:
+                            dx=8 if ex>0 else -8
+                        if abs(ey)>0.085 and abs(dy)<7:
+                            dy=7 if ey>0 else -7
+                        if dx or dy:
+                            try:
+                                self.computer.act({
+                                    "type":"camera_turn",
+                                    "dx":dx,
+                                    "dy":dy,
+                                    "seconds":0.15,
+                                })
+                                self.jjs_camera_last_move_ts=time.monotonic()
+                            except Exception:
+                                pass
+                            continue
+            else:
+                # Sin Dummy: usar la última posición humana proporcionada por la visión,
+                # pero solo durante una ventana corta. Después, hacer una búsqueda lenta.
+                with self.jjs_camera_state_lock:
+                    human_center=self.jjs_human_center_smooth
+                    human_ts=self.jjs_human_center_ts
+
+                if human_center is not None and now-human_ts<=0.75:
+                    hx,hy=human_center
+                    target={
+                        "kind":"human",
+                        "center_x":hx,
+                        "center_y":hy,
+                        "distance":None,
+                        "distance_delta":None,
+                        "aim_alignment_delta":None,
+                        "stable":self.jjs_human_stable_hits>=2,
+                        "seen_ts":now,
+                    }
+                    with self.jjs_camera_state_lock:
+                        self.jjs_camera_target=target
+                        self.jjs_camera_target_ts=now
+
+                    if target["stable"]:
+                        centered=abs(hx-0.5)<=0.075 and abs(hy-0.5)<=0.090
+                        if not centered and now-self.jjs_camera_last_move_ts>=0.20:
+                            ex=hx-0.5
+                            ey=hy-0.5
+                            dx=max(-58,min(58,int(ex*330)))
+                            dy=max(-42,min(42,int(ey*250)))
+                            if abs(ex)>0.075 and abs(dx)<7:
+                                dx=7 if ex>0 else -7
+                            if abs(ey)>0.090 and abs(dy)<6:
+                                dy=6 if ey>0 else -6
+                            if dx or dy:
+                                try:
+                                    self.computer.act({
+                                        "type":"camera_turn",
+                                        "dx":dx,
+                                        "dy":dy,
+                                        "seconds":0.13,
+                                    })
+                                    self.jjs_camera_last_move_ts=time.monotonic()
+                                except Exception:
+                                    pass
+                                continue
+                else:
+                    with self.jjs_camera_state_lock:
+                        self.jjs_camera_target=None
+                        self.jjs_camera_target_ts=0.0
+
+                    if now>=self.jjs_camera_search_next_ts:
+                        self.jjs_camera_search_direction*=-1
+                        self.jjs_camera_search_next_ts=now+1.35
+                        try:
+                            self.computer.act({
+                                "type":"camera_turn",
+                                "dx":42*self.jjs_camera_search_direction,
+                                "dy":0,
+                                "seconds":0.13,
+                            })
+                            self.jjs_camera_last_move_ts=time.monotonic()
+                        except Exception:
+                            pass
+                        continue
+
+            time.sleep(0.025)
 
     def _jjs_combat_override(self, result, is_dummy=False):
         """Ejecutivo rapido de combate: decide defensa/escape/rango sin esperar otra capa."""
@@ -772,6 +964,7 @@ class NariApp:
             self.jjs_human_center_smooth=None
             self.jjs_human_stable_hits=0
             self.jjs_human_prev_aim_error=None
+            self.jjs_human_center_ts=0.0
             self.jjs_combat_phase="search"
             return None, "combat-search"
 
@@ -796,6 +989,7 @@ class NariApp:
             self.jjs_human_center_smooth=None
             self.jjs_human_stable_hits=0
             self.jjs_human_prev_aim_error=None
+            self.jjs_human_center_ts=0.0
             self.jjs_combat_phase="aim-wait"
             return {"type":"wait","seconds":0.08}, "combat-no-center"
 
@@ -826,38 +1020,17 @@ class NariApp:
             return {"type":"wait","seconds":0.08}, "combat-aim-wait"
 
         cx,cy=aim_center
+        self.jjs_human_center_ts=now
         aim_error=((cx-0.5)**2 + (cy-0.5)**2)**0.5
         if self.jjs_human_prev_aim_error is not None:
             result["aim_alignment_delta"]=float(self.jjs_human_prev_aim_error-aim_error)
         self.jjs_human_prev_aim_error=aim_error
 
         centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
-        if not centered and confidence>=0.58:
-            if now < self.jjs_camera_observe_until:
-                self.jjs_combat_phase="aim-observe"
-                return {"type":"wait","seconds":0.07}, "combat-aim-observe"
-
-            elapsed=now-self.jjs_last_camera_action_ts
-            if elapsed>=0.28 and self.jjs_human_stable_hits>=2:
-                ex=cx-0.5
-                ey=cy-0.5
-                dx=max(-58,min(58,int(ex*330)))
-                dy=max(-42,min(42,int(ey*250)))
-
-                if abs(ex)>0.075 and abs(dx)<7:
-                    dx=7 if ex>0 else -7
-                if abs(ey)>0.090 and abs(dy)<6:
-                    dy=6 if ey>0 else -6
-
-                if dx or dy:
-                    self.jjs_last_camera_action_ts=now
-                    self.jjs_camera_observe_until=now+0.26
-                    self.jjs_combat_phase="aim"
-                    return {"type":"camera_turn","dx":dx,"dy":dy,"seconds":0.13}, "combat-aim"
-
-            self.jjs_combat_phase="aim-wait"
-            return {"type":"wait","seconds":0.07}, "combat-aim-wait"
-
+        if not centered:
+            self.jjs_combat_phase="aim"
+            # La cámara ya se mueve en el hilo dedicado; durante el ajuste no atacamos.
+            return {"type":"wait","seconds":0.07}, "combat-aim"
         if target_stunned:
             self.jjs_combat_phase="punish"
             if distance>0.58:
@@ -1034,161 +1207,51 @@ class NariApp:
                     safe_candidates.append(item)
                 candidates=safe_candidates[:2]
 
-            # Control local del Dummy en JJS.
-            # No confiamos en un solo frame: el marcador debe ser estable antes de mover la camara.
-            forced_action=None
-            forced_source=""
-            marker=None
-            marker_stable=False
+            # El hilo local de camara mantiene el objetivo actualizado sin esperar al VLM.
             if profile == "jjs":
-                try:
-                    marker=self.screen.find_dummy_marker(frame)
-                except Exception:
-                    marker=None
-
                 now_target=time.monotonic()
-                if marker is not None:
-                    raw_center=(float(marker["center_x"]),float(marker["center_y"]))
+                with self.jjs_camera_state_lock:
+                    cached=self.jjs_camera_target.copy() if isinstance(self.jjs_camera_target,dict) else None
+                    cached_ts=self.jjs_camera_target_ts
 
-                    previous_smooth=self.jjs_dummy_center_smooth
-                    if previous_smooth is None:
-                        self.jjs_dummy_center_smooth=raw_center
-                        self.jjs_dummy_stable_hits=1
-                    else:
-                        jump=((raw_center[0]-previous_smooth[0])**2 + (raw_center[1]-previous_smooth[1])**2)**0.5
-                        if jump <= 0.16:
-                            # Filtro EMA: elimina saltos del detector sin congelar el objetivo.
-                            self.jjs_dummy_center_smooth=(
-                                previous_smooth[0]*0.72 + raw_center[0]*0.28,
-                                previous_smooth[1]*0.72 + raw_center[1]*0.28,
-                            )
-                            self.jjs_dummy_stable_hits=min(8,self.jjs_dummy_stable_hits+1)
-                        else:
-                            # Cambio demasiado grande: no hacemos un giro en este frame.
-                            self.jjs_dummy_center_smooth=raw_center
-                            self.jjs_dummy_stable_hits=1
-
-                    self.jjs_dummy_last_seen=now_target
-                    self.jjs_dummy_lost_cycles=0
-                    self.jjs_dummy_center=self.jjs_dummy_center_smooth
-                    marker_stable=self.jjs_dummy_stable_hits>=2
-
+                if cached is not None and now_target-cached_ts<=0.50:
+                    marker_stable=bool(cached.get("stable",False))
                     result["target_visible"]=True
-                    result["target_is_dummy"]=True
-                    result["target_name"]="Dummy"
-                    result["target_center_x"]=self.jjs_dummy_center[0]
-                    result["target_center_y"]=self.jjs_dummy_center[1]
-
-                    # Para JJS, el tamaño del marcador local es una señal mas confiable
-                    # que una estimacion VLM aislada de distancia.
-                    marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
-                    size_ratio=marker_size/max(1,frame.shape[1])
-                    if size_ratio < 0.022:
-                        local_distance=0.90
-                    elif size_ratio < 0.035:
-                        local_distance=0.76
-                    elif size_ratio < 0.052:
-                        local_distance=0.58
-                    else:
-                        local_distance=0.38
-                    result["target_distance"]=local_distance
-
-                    # Señales objetivas para aprendizaje: distancia y error de centrado.
-                    if self.jjs_dummy_prev_distance is not None:
-                        result["target_distance_delta"]=float(local_distance-self.jjs_dummy_prev_distance)
-                    self.jjs_dummy_prev_distance=local_distance
-
-                    aim_error=((self.jjs_dummy_center[0]-0.5)**2 + (self.jjs_dummy_center[1]-0.5)**2)**0.5
-                    if self.jjs_dummy_prev_aim_error is not None:
-                        result["aim_alignment_delta"]=float(self.jjs_dummy_prev_aim_error-aim_error)
-                    self.jjs_dummy_prev_aim_error=aim_error
+                    result["target_is_dummy"]=cached.get("kind")=="dummy"
+                    result["target_name"]="Dummy" if cached.get("kind")=="dummy" else "opponent"
+                    result["target_center_x"]=float(cached.get("center_x",0.5))
+                    result["target_center_y"]=float(cached.get("center_y",0.5))
+                    if cached.get("distance") is not None:
+                        result["target_distance"]=float(cached["distance"])
+                    if cached.get("distance_delta") is not None:
+                        result["target_distance_delta"]=float(cached["distance_delta"])
+                    if cached.get("aim_alignment_delta") is not None:
+                        result["aim_alignment_delta"]=float(cached["aim_alignment_delta"])
                 else:
+                    marker_stable=False
                     self.jjs_dummy_lost_cycles+=1
-                    # Conservamos el ultimo centro solo como memoria, no como permiso
-                    # para seguir moviendo la camara a ciegas.
-                    if (self.jjs_dummy_center_smooth is not None
-                            and (now_target-self.jjs_dummy_last_seen)<=0.12):
-                        result["target_visible"]=True
-                        result["target_is_dummy"]=True
-                        result["target_name"]="Dummy"
-                        result["target_center_x"]=self.jjs_dummy_center_smooth[0]
-                        result["target_center_y"]=self.jjs_dummy_center_smooth[1]
 
-                try:
-                    target_x=float(result.get("target_center_x",0.5) or 0.5)
-                except Exception:
-                    target_x=0.5
-                try:
-                    target_y=float(result.get("target_center_y",0.5) or 0.5)
-                except Exception:
-                    target_y=0.5
-                target_x=max(0.0,min(1.0,target_x))
-                target_y=max(0.0,min(1.0,target_y))
-
-                centered=abs(target_x-0.5)<=0.070 and abs(target_y-0.5)<=0.085
-                now_action=time.monotonic()
-
-                # No invertimos la direccion automaticamente en cada lectura.
-                # Un cambio de signo por frame provoca oscilaciones; la direccion del
-                # movimiento se deriva directamente del lado en que esta el objetivo.
-                self.jjs_last_camera_command=None
-
-                if marker_stable and not centered:
-                    if now_action < self.jjs_camera_observe_until:
-                        forced_action={"type":"wait","seconds":0.07}
-                        forced_source="target-observe"
-                    elif now_action-self.jjs_last_camera_action_ts>=0.24:
-                        ex=target_x-0.5
-                        ey=target_y-0.5
-                        dx=int(ex*360*self.jjs_camera_x_sign)
-                        dy=int(ey*270*self.jjs_camera_y_sign)
-                        dx=max(-62,min(62,dx))
-                        dy=max(-46,min(46,dy))
-                        if abs(ex)>0.070 and abs(dx)<8:
-                            dx=8 if ex>0 else -8
-                        if abs(ey)>0.085 and abs(dy)<7:
-                            dy=7 if ey>0 else -7
-
-                        if dx or dy:
-                            forced_action={
-                                "type":"camera_turn",
-                                "dx":dx,
-                                "dy":dy,
-                                "seconds":0.125,
-                            }
-                            forced_source="target-lock"
-                            self.jjs_last_camera_command=(dx,ex,ey,now_target)
-                            self.jjs_last_camera_action_ts=now_action
-                            self.jjs_camera_observe_until=now_action+0.28
-
-                elif marker_stable and centered:
+                if marker_stable and result.get("target_is_dummy"):
                     try:
+                        target_x=float(result.get("target_center_x",0.5) or 0.5)
+                        target_y=float(result.get("target_center_y",0.5) or 0.5)
                         distance=float(result.get("target_distance",0.82) or 0.82)
                     except Exception:
+                        target_x=target_y=0.5
                         distance=0.82
+                    target_x=max(0.0,min(1.0,target_x))
+                    target_y=max(0.0,min(1.0,target_y))
+                    centered=abs(target_x-0.5)<=0.070 and abs(target_y-0.5)<=0.085
                     distance=max(0.0,min(1.0,distance))
-                    if distance>0.60:
-                        forced_action={"type":"hold","key":"w","seconds":0.18}
-                        forced_source="target-approach"
-                    elif not bool(result.get("cooldown_active",False)):
-                        forced_action={"type":"m1","seconds":0.055}
-                        forced_source="target-attack"
+                    if centered:
+                        if distance>0.60:
+                            forced_action={"type":"hold","key":"w","seconds":0.18}
+                            forced_source="target-approach"
+                        elif not bool(result.get("cooldown_active",False)):
+                            forced_action={"type":"m1","seconds":0.055}
+                            forced_source="target-attack"
 
-                # Sin marcador estable no hacemos un sweep agresivo. Dejamos que el VLM
-                # haga busqueda normal y mas tarde sanitizamos cualquier giro que proponga.
-                if marker is None and self.jjs_dummy_lost_cycles>=12 and now_action>=self.jjs_search_next_ts:
-                    self.jjs_search_direction*=-1
-                    self.jjs_search_next_ts=now_action+1.25
-                    forced_action={
-                        "type":"camera_turn",
-                        "dx":28*self.jjs_search_direction,
-                        "dy":0,
-                        "seconds":0.055,
-                    }
-                    forced_source="target-search"
-
-            # La camara JJS la controla exclusivamente el ejecutivo local de apuntado.
-            # No dejamos que una segunda ruta VLM genere un segundo movimiento.
+            # El controlador local es el unico dueño de la cámara JJS.
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
             tactical_action=None
@@ -1242,16 +1305,7 @@ class NariApp:
                 source="perception-error"
             else:
                 action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
-                if profile == "jjs" and str(action.get("type","")).lower() in {"camera_turn","camera_drag","camera_key_turn"}:
-                    if time.monotonic()-self.jjs_last_camera_action_ts < 0.15:
-                        action={"type":"wait","seconds":0.06}
-                        source="camera-rate-limit"
-                    else:
-                        try:
-                            self.jjs_last_camera_action_ts=time.monotonic()
-                        except Exception:
-                            pass
-
+    
             try:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
             except Exception as exc:
@@ -1522,6 +1576,7 @@ class NariApp:
 
     def _emergency_stop_core(self):
         self.game_running=False
+        self._stop_jjs_camera_controller()
         try: self.computer.release_all()
         except Exception: pass
         try: self.agent.stop()
