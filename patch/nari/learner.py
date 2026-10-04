@@ -347,6 +347,7 @@ class GameLearner:
         opponent_attacking = flag("opponent_attacking")
         player_stunned = flag("player_stunned")
         player_ragdolled = flag("player_ragdolled")
+        player_dead = flag("player_dead")
         ability_confirmed = flag("ability_confirmed")
 
         enemy_hp_delta = num("enemy_health_delta")
@@ -401,7 +402,8 @@ class GameLearner:
         # Ganar el intercambio importa mucho mas que cualquier microseñal visual.
         if ko:
             score += 1.25
-        # player_dead es la señal de derrota propia y se trata por separado.
+        if player_dead:
+            score -= 1.35
 
         # Golpear a alguien que esta bloqueando con M1 es mala informacion:
         # no queremos que el aprendizaje descubra un "autopilot" infinito.
@@ -461,6 +463,7 @@ class GameLearner:
                 "q": "dash_q",
                 "r": "special_r",
                 "g": "awaken_g",
+                "f": "block_f",
                 "space": "jump",
             }
             return aliases.get(key, f"press_{key or 'unknown'}")
