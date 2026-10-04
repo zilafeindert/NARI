@@ -79,7 +79,7 @@ class GameBrain:
             "note": str(note or "")[:180],
         })
 
-    def validate_action(self, action: dict) -> dict:
+    def validate_action(self, action: dict, commit: bool = True) -> dict:
         if not isinstance(action, dict):
             return {"type": "wait", "seconds": 0.08}
 
@@ -130,7 +130,8 @@ class GameBrain:
             if dx == 0 and dy == 0:
                 return {"type": "wait", "seconds": 0.08}
             seconds = max(0.035, min(0.10, float(out.get("seconds", 0.055) or 0.055)))
-            self.last_camera_ts = now
+            if commit:
+                self.last_camera_ts = now
             if kind == "camera_key_turn":
                 return {
                     "type": "camera_key_turn",
@@ -149,7 +150,8 @@ class GameBrain:
             now = time.monotonic()
             if now - self.last_shift_toggle_ts < 8.0:
                 return {"type": "wait", "seconds": 0.08}
-            self.last_shift_toggle_ts = now
+            if commit:
+                self.last_shift_toggle_ts = now
             return {"type": "toggle_shift_lock"}
 
         if kind == "click":
@@ -201,10 +203,6 @@ class GameBrain:
                 {"type": "press", "key": "r"},
                 {"type": "press", "key": "g"},
                 {"type": "double_tap_w"},
-                {"type": "camera_turn", "dx": -180, "dy": 0, "seconds": 0.055},
-                {"type": "camera_turn", "dx": 180, "dy": 0, "seconds": 0.055},
-                {"type": "camera_turn", "dx": 0, "dy": -110, "seconds": 0.05},
-                {"type": "camera_turn", "dx": 0, "dy": 110, "seconds": 0.05},
                 {"type": "press", "key": "space"},
                 {"type": "wait", "seconds": 0.10},
             ]
@@ -242,26 +240,35 @@ class GameBrain:
         return {"type": "wait", "seconds": 0.10}
 
     def arbitrate(self, actions, confidence=0.0, cycle=0):
-        """Elige una sola accion evitando bucles pobres del VLM."""
+        """Elige una sola accion evitando bucles pobres sin mutar estado al probar candidatos."""
         valid = []
+        saved_camera_ts = self.last_camera_ts
+        saved_shift_ts = self.last_shift_toggle_ts
+
         for action in actions or []:
             if not isinstance(action, dict):
                 continue
-            checked = self.validate_action(action)
+            checked = self.validate_action(action, commit=False)
             key = self.learner.action_key(checked)
             if key in {"unknown", "wait"} and self.stuck_count < 2:
                 continue
             valid.append((checked, key))
 
+        self.last_camera_ts = saved_camera_ts
+        self.last_shift_toggle_ts = saved_shift_ts
+
         if valid:
-            # El primer candidato es la intencion del modelo. Solo la sustituimos
-            # cuando cae en un bucle claro o cuando el historial exige exploracion.
             for action, key in valid:
                 if not self._is_bad_repeat(key, float(confidence or 0.0)):
-                    return action, "modelo"
-            return self._novelty_candidates(cycle), "diversidad"
+                    committed=self.validate_action(action, commit=True)
+                    return committed, "modelo"
 
-        return self._novelty_candidates(cycle), "recuperacion"
+            fallback=self._novelty_candidates(cycle)
+            key=self.learner.action_key(fallback)
+            return self.validate_action(fallback, commit=True), "diversidad"
+
+        fallback=self._novelty_candidates(cycle)
+        return self.validate_action(fallback, commit=True), "recuperacion"
 
     def fallback(self, cycle: int = 0) -> dict:
         return self._novelty_candidates(cycle)
