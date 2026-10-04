@@ -97,6 +97,7 @@ class NariApp:
         self.jjs_camera_y_sign = 1
         self.jjs_last_camera_command = None
         self.jjs_last_camera_action_ts = 0.0
+        self.jjs_camera_observe_until = 0.0
         self.jjs_search_next_ts = 0.0
         self.jjs_search_direction = 1
         self.jjs_combat_phase = "search"
@@ -582,6 +583,7 @@ class NariApp:
         self.jjs_camera_y_sign=1
         self.jjs_last_camera_command=None
         self.jjs_last_camera_action_ts=0.0
+        self.jjs_camera_observe_until=0.0
         self.jjs_search_next_ts=0.0
         self.jjs_search_direction=1
         self.jjs_combat_phase="search"
@@ -772,30 +774,45 @@ class NariApp:
             # cuando haya evidencia de que sirve.
             return None, "combat-guard-read"
 
-        # Seguimiento de un rival humano: usa la posicion visual reportada por el VLM.
-        # Es un ajuste pequeno y limitado; no hace barridos cuando se pierde el objetivo.
+        # Seguimiento visual suave: un giro debe terminar antes de que decidamos
+        # el siguiente. Esto evita oscilaciones de microcorrecciones.
         try:
             cx=max(0.0,min(1.0,num("target_center_x",0.5)))
             cy=max(0.0,min(1.0,num("target_center_y",0.5)))
         except Exception:
             cx,cy=0.5,0.5
-        centered=(abs(cx-0.5)<=0.07 and abs(cy-0.5)<=0.085)
+
+        centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
         if not centered and confidence>=0.58:
-            if now-self.jjs_last_camera_action_ts>=0.16:
+            if now < self.jjs_camera_observe_until:
+                self.jjs_combat_phase="aim-observe"
+                return {"type":"wait","seconds":0.07}, "combat-aim-observe"
+
+            elapsed=now-self.jjs_last_camera_action_ts
+            if elapsed>=0.24:
                 ex=cx-0.5
                 ey=cy-0.5
-                dx=max(-40,min(40,int(ex*240*self.jjs_camera_x_sign)))
-                dy=max(-28,min(28,int(ey*180*self.jjs_camera_y_sign)))
-                if abs(ex)>0.07 and abs(dx)<5:
-                    dx=5 if ex>0 else -5
-                if abs(ey)>0.085 and abs(dy)<5:
-                    dy=5 if ey>0 else -5
+
+                # Control proporcional con saturacion: cuanto mas lejos del centro,
+                # mas giro, pero nunca un latigazo.
+                dx=int(ex*360*self.jjs_camera_x_sign)
+                dy=int(ey*270*self.jjs_camera_y_sign)
+                dx=max(-62,min(62,dx))
+                dy=max(-46,min(46,dy))
+
+                if abs(ex)>0.075 and abs(dx)<8:
+                    dx=8 if ex>0 else -8
+                if abs(ey)>0.090 and abs(dy)<7:
+                    dy=7 if ey>0 else -7
+
                 if dx or dy:
                     self.jjs_last_camera_action_ts=now
+                    self.jjs_camera_observe_until=now+0.28
                     self.jjs_combat_phase="aim"
-                    return {"type":"camera_turn","dx":dx,"dy":dy,"seconds":0.06}, "combat-aim"
+                    self.jjs_last_camera_command=(dx,ex,ey,now)
+                    return {"type":"camera_turn","dx":dx,"dy":dy,"seconds":0.125}, "combat-aim"
             self.jjs_combat_phase="aim-wait"
-            return {"type":"wait","seconds":0.06}, "combat-aim-wait"
+            return {"type":"wait","seconds":0.07}, "combat-aim-wait"
 
         if target_stunned:
             self.jjs_combat_phase="punish"
@@ -1050,44 +1067,38 @@ class NariApp:
                 centered=abs(target_x-0.5)<=0.070 and abs(target_y-0.5)<=0.085
                 now_action=time.monotonic()
 
-                # Ajuste automatico de signo: si el giro anterior alejo el marcador
-                # del centro, invertimos solo ese eje.
-                previous_cmd=self.jjs_last_camera_command
-                if marker is not None and marker_stable and previous_cmd is not None:
-                    _,old_ex,old_ey,old_ts=previous_cmd
-                    if now_target-old_ts < 0.80:
-                        new_ex=target_x-0.5
-                        new_ey=target_y-0.5
-                        if abs(old_ex)>=0.035 and abs(new_ex)>abs(old_ex)+0.015:
-                            self.jjs_camera_x_sign*=-1
-                        if abs(old_ey)>=0.035 and abs(new_ey)>abs(old_ey)+0.015:
-                            self.jjs_camera_y_sign*=-1
-                    self.jjs_last_camera_command=None
+                # No invertimos la direccion automaticamente en cada lectura.
+                # Un cambio de signo por frame provoca oscilaciones; la direccion del
+                # movimiento se deriva directamente del lado en que esta el objetivo.
+                self.jjs_last_camera_command=None
 
                 if marker_stable and not centered:
-                    elapsed=now_action-self.jjs_last_camera_action_ts
-                    if elapsed>=0.15:
+                    if now_action < self.jjs_camera_observe_until:
+                        forced_action={"type":"wait","seconds":0.07}
+                        forced_source="target-observe"
+                    elif now_action-self.jjs_last_camera_action_ts>=0.24:
                         ex=target_x-0.5
                         ey=target_y-0.5
-                        dx=int(ex*300*self.jjs_camera_x_sign)
-                        dy=int(ey*230*self.jjs_camera_y_sign)
-                        dx=max(-48,min(48,dx))
-                        dy=max(-36,min(36,dy))
-                        if abs(ex)>0.070 and abs(dx)<7:
-                            dx=7 if ex>0 else -7
-                        if abs(ey)>0.085 and abs(dy)<6:
-                            dy=6 if ey>0 else -6
+                        dx=int(ex*360*self.jjs_camera_x_sign)
+                        dy=int(ey*270*self.jjs_camera_y_sign)
+                        dx=max(-62,min(62,dx))
+                        dy=max(-46,min(46,dy))
+                        if abs(ex)>0.070 and abs(dx)<8:
+                            dx=8 if ex>0 else -8
+                        if abs(ey)>0.085 and abs(dy)<7:
+                            dy=7 if ey>0 else -7
 
                         if dx or dy:
                             forced_action={
                                 "type":"camera_turn",
                                 "dx":dx,
                                 "dy":dy,
-                                "seconds":0.065,
+                                "seconds":0.125,
                             }
                             forced_source="target-lock"
                             self.jjs_last_camera_command=(dx,ex,ey,now_target)
                             self.jjs_last_camera_action_ts=now_action
+                            self.jjs_camera_observe_until=now_action+0.28
 
                 elif marker_stable and centered:
                     try:
@@ -1143,25 +1154,26 @@ class NariApp:
                     vy=max(0.0,min(1.0,vy))
                     if abs(vx-0.5)>0.08 or abs(vy-0.5)>0.08:
                         now_vlm=time.monotonic()
-                        if now_vlm-self.jjs_last_camera_action_ts>=0.22:
-                            vdx=int((vx-0.5)*220*self.jjs_camera_x_sign)
-                            vdy=int((vy-0.5)*170*self.jjs_camera_y_sign)
-                            vdx=max(-38,min(38,vdx))
-                            vdy=max(-28,min(28,vdy))
-                            if abs(vdx)<5 and abs(vx-0.5)>0.08:
-                                vdx=5 if vx>0.5 else -5
-                            if abs(vdy)<5 and abs(vy-0.5)>0.08:
-                                vdy=5 if vy>0.5 else -5
+                        if now_vlm-self.jjs_last_camera_action_ts>=0.30:
+                            vdx=int((vx-0.5)*300*self.jjs_camera_x_sign)
+                            vdy=int((vy-0.5)*220*self.jjs_camera_y_sign)
+                            vdx=max(-50,min(50,vdx))
+                            vdy=max(-38,min(38,vdy))
+                            if abs(vdx)<6 and abs(vx-0.5)>0.08:
+                                vdx=6 if vx>0.5 else -6
+                            if abs(vdy)<6 and abs(vy-0.5)>0.08:
+                                vdy=6 if vy>0.5 else -6
                             if vdx or vdy:
                                 forced_action={
                                     "type":"camera_turn",
                                     "dx":vdx,
                                     "dy":vdy,
-                                    "seconds":0.06,
+                                    "seconds":0.11,
                                 }
                                 forced_source="vlm-target-lock"
                                 self.jjs_last_camera_command=(vdx,vx-0.5,vy-0.5,now_vlm)
                                 self.jjs_last_camera_action_ts=now_vlm
+                                self.jjs_camera_observe_until=now_vlm+0.30
 
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
