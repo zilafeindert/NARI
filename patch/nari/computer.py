@@ -523,9 +523,13 @@ class Computer:
                 for key in keys: self._key_down(key)
                 for key in reversed(keys): self._key_up(key)
             elif t == "camera_key_turn":
-                # Roblox Classic tambien permite rotar la camara con las flechas.
-                # Es un respaldo cuando el juego no acepta movimiento de mouse sintetico.
-                direction = "right" if int(action.get("dx", 0) or 0) > 0 else "left"
+                # Respaldo para Roblox cuando el movimiento de mouse sintetico no se consume.
+                dx = int(action.get("dx", 0) or 0)
+                dy = int(action.get("dy", 0) or 0)
+                if abs(dy) > abs(dx):
+                    direction = "down" if dy > 0 else "up"
+                else:
+                    direction = "right" if dx > 0 else "left"
                 self._key_down(direction)
                 try:
                     time.sleep(max(0.035, min(0.12, float(action.get("seconds", 0.07) or 0.07))))
