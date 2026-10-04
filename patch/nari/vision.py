@@ -200,7 +200,7 @@ class ScreenVideo:
                 if best is None or score > best[0]:
                     best=(score,cx,cy,area,bw,bh,fill)
 
-            if best is None:
+            if best is None or float(best[0]) < 0.36:
                 return None
 
             result={
