@@ -214,44 +214,34 @@ class GameLearner:
 
     @staticmethod
     def state_key(frame, profile="generic") -> str:
-        """Estado visual compacto con informacion espacial y una pista del marcador."""
+        """Estado visual compacto y generalizable para aprendizaje persistente."""
         if frame is None:
             return f"{profile}:none"
         try:
             arr=np.asarray(frame)
-            if arr.ndim==2:
-                rgb=np.repeat(arr[...,None],3,axis=2).astype(np.float32)
-            else:
+            if arr.ndim==3:
+                gray=arr[...,:3].astype(np.float32).mean(axis=2)
                 rgb=arr[...,:3].astype(np.float32)
+            else:
+                gray=arr.astype(np.float32)
+                rgb=np.repeat(gray[...,None],3,axis=2)
 
-            h,w=rgb.shape[:2]
+            h,w=gray.shape[:2]
             if h<8 or w<8:
                 return f"{profile}:tiny"
 
-            gray=rgb.mean(axis=2)
-            ys=np.linspace(0,h-1,36).astype(np.int32)
-            xs=np.linspace(0,w-1,48).astype(np.int32)
-            small=gray[np.ix_(ys,xs)]
+            mean=float(gray.mean())
+            std=float(gray.std())
+            dark=float((gray<55).mean())
+            bright=float((gray>190).mean())
 
-            mean=float(small.mean())
-            std=float(small.std())
-            dark=float((small<55).mean())
-            bright=float((small>190).mean())
+            # Solo una pista espacial muy gruesa; evita crear miles de estados
+            # por pequeñas variaciones de cámara.
+            mid_x=gray[:, :max(1,w//2)]
+            mid_y=gray[:max(1,h//2), :]
+            left=float(mid_x.mean())
+            top=float(mid_y.mean())
 
-            # Estadisticas espaciales 3x4: evita que escenarios visualmente distintos
-            # compartan el mismo estado solo por tener promedio parecido.
-            spatial=[]
-            for ry in range(3):
-                y0=(ry*h)//3
-                y1=((ry+1)*h)//3
-                for rx in range(4):
-                    x0=(rx*w)//4
-                    x1=((rx+1)*w)//4
-                    cell=gray[y0:y1,x0:x1]
-                    spatial.append(int(max(0,min(15,float(cell.mean())/16.0))))
-
-            # Pista barata del verde: porcentaje, centro X/Y. Solo sirve como contexto
-            # para el Dummy; no declara por si misma que exista un objetivo.
             r=rgb[:,:,0]
             g=rgb[:,:,1]
             b=rgb[:,:,2]
@@ -270,10 +260,11 @@ class GameLearner:
                 f"s{int(std//16):02d}:"
                 f"d{int(dark*10):02d}:"
                 f"b{int(bright*10):02d}:"
-                f"sp{''.join(format(x,'x') for x in spatial)}:"
-                f"gr{int(min(99.0,green_ratio*1000)):02d}:"
-                f"gx{int(gx*20):02d}:"
-                f"gy{int(gy*20):02d}"
+                f"l{int(max(0,min(15,left/16))):02x}:"
+                f"t{int(max(0,min(15,top/16))):02x}:"
+                f"gr{int(min(30.0,green_ratio*1000)):02d}:"
+                f"gx{int(gx*8):02d}:"
+                f"gy{int(gy*8):02d}"
             )
         except Exception:
             return f"{profile}:unknown"
@@ -732,7 +723,10 @@ class GameLearner:
             trials = int(row["trials"])
             old = float(row["value"])
             if profile == "jjs":
-                alpha = 0.40 if trials < 12 else 0.22
+                if reward < 0:
+                    alpha = 0.48 if trials < 12 else 0.28
+                else:
+                    alpha = 0.40 if trials < 12 else 0.22
             else:
                 alpha = 0.28 if trials < 12 else 0.16
             value = old + alpha * (reward - old)
