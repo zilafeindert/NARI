@@ -17,6 +17,10 @@ class DecisionCore:
         self.path = Path(db_path)
         self.db = sqlite3.connect(self.path, check_same_thread=False, timeout=8.0)
         self.db.row_factory = sqlite3.Row
+        try:
+            self.db.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
         self.db.execute(
             """
             CREATE TABLE IF NOT EXISTS internal_decisions(
