@@ -843,12 +843,13 @@ class NariApp:
                         else aim_delta
                     ),
                     "stable":True,
-                    "seen_ts":now,
+                    "seen_ts":(self.jjs_camera_target_ts if using_vlm_dummy else now),
                     "source":"vlm" if using_vlm_dummy else "local-marker",
                 }
+                target_ts=(self.jjs_camera_target_ts if using_vlm_dummy else now)
                 with self.jjs_camera_state_lock:
                     self.jjs_camera_target=target
-                    self.jjs_camera_target_ts=now
+                    self.jjs_camera_target_ts=target_ts
 
                 centered=abs(smooth[0]-0.5)<=0.070 and abs(smooth[1]-0.5)<=0.085
 
@@ -1613,10 +1614,30 @@ class NariApp:
                 previous_goal_state = goal_state
 
             stats = self.agent.game_stats(profile) if self.learning_enabled else {"experiences":0,"avg_reward":0.0}
+            if profile == "jjs":
+                _target_kind = "none"
+                _target_cx = _target_cy = 0.50
+                _target_dist = 0.75
+                with self.jjs_camera_state_lock:
+                    _dbg_target = self.jjs_camera_target.copy() if isinstance(self.jjs_camera_target,dict) else None
+                    _dbg_target_ts = self.jjs_camera_target_ts
+                if _dbg_target is not None and time.monotonic()-_dbg_target_ts <= 0.90:
+                    _target_kind = str(_dbg_target.get("source") or _dbg_target.get("kind") or "target")
+                    _target_cx = float(_dbg_target.get("center_x",0.50))
+                    _target_cy = float(_dbg_target.get("center_y",0.50))
+                    if _dbg_target.get("distance") is not None:
+                        _target_dist = float(_dbg_target.get("distance"))
+                target_debug = (
+                    f" • target={_target_kind} "
+                    f"({(_target_cx):.2f},{(_target_cy):.2f}) d={_target_dist:.2f}"
+                )
+            else:
+                target_debug = ""
             status_text = (
                 f"ACTIVO • {profile} • ciclo {self.game_cycle} • accion: {decision} • "
-                f"confianza {confidence:.2f} • Δrecompensa {reward:+.2f} • visual {raw_reward:+.2f} • "
-                f"combate {getattr(self,'jjs_combat_phase','n/a')} • {source}"
+                f"exec={execution_text[:28]} • confianza {confidence:.2f} • "
+                f"Δrecompensa {reward:+.2f} • visual {raw_reward:+.2f} • "
+                f"combate {getattr(self,'jjs_combat_phase','n/a')} • {source}{target_debug}"
             )
             self.root.after(0, lambda s=status_text: self.game_status.set(s))
 
