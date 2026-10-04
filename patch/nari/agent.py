@@ -299,8 +299,7 @@ class Agent:
         )
 
         enemy_terms=(
-            "enemy","opponent","rival","player","enemigo","jugador",
-            "oponente","adversario","character","charactero","avatar"
+            "enemy","opponent","rival","enemigo","oponente","adversario"
         )
         human_explicit=(not dummy and any(term in blob for term in enemy_terms))
 
