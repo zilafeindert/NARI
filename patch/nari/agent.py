@@ -301,7 +301,10 @@ class Agent:
                 "la cabeza; usa marcador, nombre o silueta como evidencia, pero exige consistencia temporal. "
                 "Marca target_is_dummy=true solo con evidencia visible. El rival humano puede no tener marcador: "
                 "usa su silueta, centro corporal y cambios temporales. Si el objetivo esta fuera de centro, "
-                "gira poco hacia el. No ataques al aire ni ejecutes combos completos por anticipado."
+                "gira poco hacia el. No ataques al aire ni ejecutes combos completos por anticipado. "
+                "En JJS NO devuelvas camera_turn/camera_drag/camera_key_turn; el controlador local "
+                "es el unico responsable de mover la camara. Concentrate en identificar estado, "
+                "apertura, ataque, defensa, stun, cooldown y rango."
             )
         elif profile == "roblox":
             controls = (
