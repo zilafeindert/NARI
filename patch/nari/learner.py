@@ -418,15 +418,21 @@ class GameLearner:
         if target_visible:
             score+=0.035
 
-        if align_delta>0.02:
-            score+=min(0.28,align_delta*0.38)
-        elif align_delta<-0.08:
-            score-=min(0.24,abs(align_delta)*0.30)
+        # Atribuir cada señal espacial a la accion que realmente puede causarla.
+        is_camera=key in {"look_left","look_right","look_up","look_down","camera_turn","camera_drag"}
+        is_movement=key.startswith("hold_") or key=="dash_q"
 
-        if distance_delta<-0.025:
-            score+=min(0.24,abs(distance_delta)*0.34)
-        elif distance_delta>0.12:
-            score-=min(0.20,distance_delta*0.26)
+        if is_camera:
+            if align_delta>0.02:
+                score+=min(0.32,align_delta*0.42)
+            elif align_delta<-0.08:
+                score-=min(0.26,abs(align_delta)*0.34)
+
+        if is_movement:
+            if distance_delta<-0.025:
+                score+=min(0.26,abs(distance_delta)*0.38)
+            elif distance_delta>0.12:
+                score-=min(0.22,distance_delta*0.30)
 
         if 0.0<=target_distance<=0.52 and key.startswith("hold_"):
             score+=0.07
@@ -472,10 +478,11 @@ class GameLearner:
         if key=="m1" and target_blocking and not hit:
             score-=0.50
 
-        # La camara solo aprende cuando de verdad mejoro el aim.
-        if key in {"look_left","look_right","look_up","look_down","camera_turn","camera_drag"}:
+        # La camara recibe una señal pequeña, aislada de dano/golpes,
+        # para que no robe creditos a las acciones de combate.
+        if is_camera:
             if align_delta>0.02 and target_visible:
-                score=0.03*raw+min(0.24,align_delta*0.34)
+                score=0.02*raw+min(0.30,align_delta*0.40)
             else:
                 score=-0.10
 
