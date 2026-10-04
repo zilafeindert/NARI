@@ -1,8 +1,8 @@
 {
-  "version": "5.5.24",
-  "tag": "v5.5.24",
+  "version": "5.5.25",
+  "tag": "v5.5.25",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-coordinated-advance-m1-26"
+  "release_build": "jjs-enemy-acquisition-27"
 }
