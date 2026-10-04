@@ -1,8 +1,8 @@
 {
-  "version": "5.5.22",
-  "tag": "v5.5.22",
+  "version": "5.5.23",
+  "tag": "v5.5.23",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-dummy-attack-transition-24"
+  "release_build": "jjs-m1-viewport-click-25"
 }
