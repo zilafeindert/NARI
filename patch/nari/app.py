@@ -1370,15 +1370,10 @@ class NariApp:
                 action=self.agent.game_validate_action(tactical_action)
                 source=tactical_source
             elif profile == "jjs" and bool(result.get("target_visible",False)) and confidence>=0.58 and candidates:
-                # Con objetivo humano visible, conservar la primera decision del VLM
-                # en vez de dejar que el fallback exploratorio la sustituya.
-                chosen=candidates[0]
-                chosen_kind=str(chosen.get("type","")).lower()
-                if chosen_kind in {"m1","block","hold","double_tap_w","press","keys","wait"}:
-                    action=self.agent.game_validate_action(chosen)
-                    source="vision-combat"
-                else:
-                    action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame,state_key=state)
+                # Con objetivo humano visible, combinar la propuesta del VLM con el valor aprendido.
+                action,source=self.agent.game_choose_action(
+                    candidates,confidence,self.game_cycle,frame,state_key=learning_state
+                )
             elif profile == "jjs" and result.get("error"):
                 action={"type":"wait","seconds":0.10}
                 source="perception-error"
@@ -1396,7 +1391,7 @@ class NariApp:
             if execution_failed and self.learning_enabled:
                 try:
                     self.agent.game_record(
-                        profile, state, action, -0.95, "execution-error",
+                        profile, learning_state, action, -0.95, "execution-error",
                         str(exec_result)[:300],
                     )
                     self.agent.game_feedback(
