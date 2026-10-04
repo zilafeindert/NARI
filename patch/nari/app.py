@@ -1319,7 +1319,7 @@ class NariApp:
                     action=self.agent.game_validate_action(chosen)
                     source="vision-combat"
                 else:
-                    action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
+                    action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame,state_key=state)
             elif profile == "jjs" and result.get("error"):
                 action={"type":"wait","seconds":0.10}
                 source="perception-error"
