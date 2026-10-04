@@ -1,0 +1,5 @@
+NARI 5.5.17
+
+- Includes the full stability, camera, combat, learning and infrastructure audit from 5.5.16.
+- Fixes the updater launcher string-construction syntax error caught by GitHub Actions compileall.
+- Keeps the dedicated JJS camera controller and audited combat learning pipeline intact.
