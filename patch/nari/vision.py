@@ -32,6 +32,8 @@ class ScreenVideo:
             self.target_hwnd = None
     def clear_target_window(self):
         self.target_hwnd = None
+        self.last_dummy_marker = None
+        self.last_dummy_marker_ts = 0.0
         with self.lock:
             self.latest_game_frame = None
             self.game_history.clear()
@@ -97,72 +99,78 @@ class ScreenVideo:
                 return None if self.latest_frame is None else self.latest_frame.copy()
             return self.latest_game_frame.copy()
 
-    @staticmethod
-    def find_dummy_marker(frame):
-        """Detecta y estabiliza el marcador verde del Dummy de entrenamiento en JJS."""
+    def find_dummy_marker(self, frame):
+        """Detecta el marcador verde y lo asocia temporalmente al objetivo anterior."""
         if frame is None or cv2 is None:
             return None
         try:
             img=np.asarray(frame)
-            if img.ndim != 3 or img.shape[1] < 120 or img.shape[0] < 80:
+            if img.ndim != 3 or img.shape[1] < 160 or img.shape[0] < 100:
                 return None
 
+            h,w=img.shape[:2]
             hsv=cv2.cvtColor(img,cv2.COLOR_RGB2HSV)
 
-            # El marcador puede ser un cuadrado relleno, un contorno o verse
-            # parcialmente por el escalado. Se usan dos rangos verdes y un
-            # criterio de relleno mucho mas permisivo que en versiones previas.
-            mask1=cv2.inRange(
+            # Verde vivo del marcador, evitando verdes demasiado grises/oscuros.
+            mask=cv2.inRange(
                 hsv,
-                np.array([32,70,70],np.uint8),
-                np.array([88,255,255],np.uint8),
+                np.array([36,90,90],np.uint8),
+                np.array([92,255,255],np.uint8),
             )
-            mask2=cv2.inRange(
-                hsv,
-                np.array([40,45,100],np.uint8),
-                np.array([105,255,255],np.uint8),
-            )
-            mask=cv2.bitwise_or(mask1,mask2)
             mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
             mask=cv2.morphologyEx(mask,cv2.MORPH_OPEN,np.ones((2,2),np.uint8))
 
             n,labels,stats,cent=cv2.connectedComponentsWithStats(mask,8)
-            h,w=img.shape[:2]
+            previous=self.last_dummy_marker
+            previous_age=time.monotonic()-float(self.last_dummy_marker_ts or 0.0)
             best=None
 
             for idx in range(1,n):
                 x,y,bw,bh,area=[int(v) for v in stats[idx]]
-                if area < 8 or area > max(1400,int(w*h*0.006)):
+                if area < 12 or area > max(1000,int(w*h*0.0035)):
                     continue
-                if bw < 3 or bh < 3:
+                if bw < 4 or bh < 4:
                     continue
 
                 ratio=bw/max(1,bh)
-                if ratio < 0.45 or ratio > 2.20:
+                if ratio < 0.60 or ratio > 1.70:
                     continue
-                if max(bw,bh) > max(36,int(w*0.13)):
+                if max(bw,bh) > max(32,int(w*0.09)):
                     continue
 
                 fill=float(area)/float(max(1,bw*bh))
-                # Importante: un marcador de contorno puede tener muy poco relleno.
-                if fill < 0.08:
+                # Un contorno muy fino o una linea de HUD no debe ganar por area.
+                if fill < 0.16:
                     continue
 
                 cx=float(cent[idx][0])/float(w)
                 cy=float(cent[idx][1])/float(h)
-                if cx < 0.015 or cx > 0.985 or cy < 0.015 or cy > 0.97:
+
+                # Evitar bordes de HUD y esquinas que suelen contener elementos verdes.
+                if cx < 0.04 or cx > 0.96 or cy < 0.03 or cy > 0.90:
                     continue
 
-                squareness=1.0-min(0.90,abs(1.0-ratio))
-                compactness=min(1.0,fill/0.55)
+                squareness=max(0.0,1.0-min(1.0,abs(1.0-ratio)*2.0))
+                compactness=min(1.0,fill/0.65)
                 size_ratio=max(bw,bh)/float(max(1,w))
-                small_bonus=1.0 if size_ratio <= 0.08 else max(0.0,1.0-(size_ratio-0.08)*4.0)
-                score=float(area)*(
-                    0.35*squareness +
-                    0.35*compactness +
-                    0.20*small_bonus +
-                    0.10
+                ideal_size=max(0.0,1.0-abs(size_ratio-0.025)/0.04)
+                score=(
+                    0.52*squareness +
+                    0.28*compactness +
+                    0.20*ideal_size
                 )
+
+                # Una vez adquirido el marcador, damos fuerte preferencia a la
+                # misma vecindad temporal para no saltar a otro elemento verde.
+                if previous is not None and previous_age < 1.0:
+                    px=float(previous["center_x"])
+                    py=float(previous["center_y"])
+                    dist=((cx-px)**2+(cy-py)**2)**0.5
+                    proximity=max(0.0,1.0-dist/0.35)
+                    if dist > 0.45:
+                        score *= 0.12
+                    else:
+                        score += 0.36*proximity
 
                 if best is None or score > best[0]:
                     best=(score,cx,cy,area,bw,bh,fill)
@@ -170,14 +178,18 @@ class ScreenVideo:
             if best is None:
                 return None
 
-            return {
+            result={
                 "center_x":max(0.0,min(1.0,best[1])),
                 "center_y":max(0.0,min(1.0,best[2])),
                 "area":int(best[3]),
                 "width":int(best[4]),
                 "height":int(best[5]),
                 "fill":float(best[6]),
+                "confidence":max(0.0,min(1.0,float(best[0]))),
             }
+            self.last_dummy_marker=result
+            self.last_dummy_marker_ts=time.monotonic()
+            return result
         except Exception:
             return None
 
