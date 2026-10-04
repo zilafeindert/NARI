@@ -506,7 +506,7 @@ class Agent:
         chosen, source = self.game_brain.arbitrate(
             actions, confidence, cycle, state_key=state_key
         )
-        return self.game_validate_action(chosen), source
+        return chosen, source
 
     def game_state_key(self, frame, profile="generic"):
         return self.game_learner.state_key(frame, profile)
