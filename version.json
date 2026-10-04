@@ -1,8 +1,8 @@
 {
-  "version": "5.5.26",
-  "tag": "v5.5.26",
+  "version": "5.5.27",
+  "tag": "v5.5.27",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-control-decoupling-28"
+  "release_build": "jjs-target-scan-29"
 }
