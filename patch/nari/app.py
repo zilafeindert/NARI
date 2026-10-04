@@ -93,6 +93,8 @@ class NariApp:
         self.jjs_dummy_center = None
         self.jjs_dummy_center_smooth = None
         self.jjs_dummy_stable_hits = 0
+        self.jjs_human_center_smooth = None
+        self.jjs_human_stable_hits = 0
         self.jjs_camera_x_sign = 1
         self.jjs_camera_y_sign = 1
         self.jjs_last_camera_command = None
@@ -579,6 +581,8 @@ class NariApp:
         self.jjs_dummy_center=None
         self.jjs_dummy_center_smooth=None
         self.jjs_dummy_stable_hits=0
+        self.jjs_human_center_smooth=None
+        self.jjs_human_stable_hits=0
         self.jjs_camera_x_sign=1
         self.jjs_camera_y_sign=1
         self.jjs_last_camera_command=None
@@ -625,7 +629,7 @@ class NariApp:
             self.game_recommended_actions = []
             self.game_recommendation_ts = 0.0
 
-        threading.Thread(target=self._game_loop,args=(profile,),daemon=True).start()
+        threading.Thread(target=self._safe_game_loop,args=(profile,),daemon=True,name="NARI-game-loop").start()
         self.game_status.set(f"ACTIVO • {profile} • foco: {title}")
         self._status(f"🎮 NARI jugando con control cerrado • {profile}")
 
@@ -774,14 +778,35 @@ class NariApp:
             # cuando haya evidencia de que sirve.
             return None, "combat-guard-read"
 
-        # Seguimiento visual suave: un giro debe terminar antes de que decidamos
-        # el siguiente. Esto evita oscilaciones de microcorrecciones.
+        # Seguimiento visual suave para jugadores reales.
+        # Suavizamos el centro que entrega el VLM antes de convertirlo en movimiento.
         try:
             cx=max(0.0,min(1.0,num("target_center_x",0.5)))
             cy=max(0.0,min(1.0,num("target_center_y",0.5)))
         except Exception:
             cx,cy=0.5,0.5
 
+        previous_human=self.jjs_human_center_smooth
+        if previous_human is None:
+            self.jjs_human_center_smooth=(cx,cy)
+            self.jjs_human_stable_hits=1
+        else:
+            jump=((cx-previous_human[0])**2+(cy-previous_human[1])**2)**0.5
+            if jump<=0.22:
+                self.jjs_human_center_smooth=(
+                    previous_human[0]*0.68 + cx*0.32,
+                    previous_human[1]*0.68 + cy*0.32,
+                )
+                self.jjs_human_stable_hits=min(8,self.jjs_human_stable_hits+1)
+            else:
+                self.jjs_human_stable_hits=0
+
+        aim_center=self.jjs_human_center_smooth
+        if aim_center is None or self.jjs_human_stable_hits<1:
+            self.jjs_combat_phase="aim-wait"
+            return {"type":"wait","seconds":0.08}, "combat-aim-wait"
+
+        cx,cy=aim_center
         centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
         if not centered and confidence>=0.58:
             if now < self.jjs_camera_observe_until:
@@ -789,28 +814,23 @@ class NariApp:
                 return {"type":"wait","seconds":0.07}, "combat-aim-observe"
 
             elapsed=now-self.jjs_last_camera_action_ts
-            if elapsed>=0.24:
+            if elapsed>=0.28 and self.jjs_human_stable_hits>=2:
                 ex=cx-0.5
                 ey=cy-0.5
+                dx=max(-58,min(58,int(ex*330)))
+                dy=max(-42,min(42,int(ey*250)))
 
-                # Control proporcional con saturacion: cuanto mas lejos del centro,
-                # mas giro, pero nunca un latigazo.
-                dx=int(ex*360*self.jjs_camera_x_sign)
-                dy=int(ey*270*self.jjs_camera_y_sign)
-                dx=max(-62,min(62,dx))
-                dy=max(-46,min(46,dy))
-
-                if abs(ex)>0.075 and abs(dx)<8:
-                    dx=8 if ex>0 else -8
-                if abs(ey)>0.090 and abs(dy)<7:
-                    dy=7 if ey>0 else -7
+                if abs(ex)>0.075 and abs(dx)<7:
+                    dx=7 if ex>0 else -7
+                if abs(ey)>0.090 and abs(dy)<6:
+                    dy=6 if ey>0 else -6
 
                 if dx or dy:
                     self.jjs_last_camera_action_ts=now
-                    self.jjs_camera_observe_until=now+0.28
+                    self.jjs_camera_observe_until=now+0.26
                     self.jjs_combat_phase="aim"
-                    self.jjs_last_camera_command=(dx,ex,ey,now)
-                    return {"type":"camera_turn","dx":dx,"dy":dy,"seconds":0.125}, "combat-aim"
+                    return {"type":"camera_turn","dx":dx,"dy":dy,"seconds":0.13}, "combat-aim"
+
             self.jjs_combat_phase="aim-wait"
             return {"type":"wait","seconds":0.07}, "combat-aim-wait"
 
@@ -841,6 +861,21 @@ class NariApp:
 
         self.jjs_combat_phase="neutral"
         return None, "combat-neutral"
+
+    def _safe_game_loop(self, profile: str):
+        try:
+            self._game_loop(profile)
+        except Exception as exc:
+            self.game_running=False
+            try:
+                self.computer.release_all()
+            except Exception:
+                pass
+            try:
+                self.root.after(0, lambda m=str(exc)[:220]: self.game_status.set("ERROR DE JUEGO • "+m))
+                self._status("❌ Bucle de juego: "+str(exc)[:180])
+            except Exception:
+                pass
 
     def _game_loop(self, profile: str):
         goal = self.game_goal.get().strip() or "Explora el juego, aprende los controles y completa objetivos visibles."
