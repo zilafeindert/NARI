@@ -1,0 +1,10 @@
+NARI 5.5.25
+
+JJS enemy detection hardening.
+
+- Increased JJS VLM output budget so target telemetry is less likely to be truncated.
+- Reordered target fields to prioritize target visibility, target identity and target center.
+- Added normalization for target_center and bbox-style outputs.
+- Explicit enemy/opponent signals now activate human-target tracking even when target_visible was omitted.
+- Human enemy fallback is restricted to explicit opponent signals to avoid confusing the local player with an enemy.
+- Preserves coordinated advance_m1 and Dummy controls from previous releases.
