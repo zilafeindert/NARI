@@ -562,6 +562,7 @@ class NariApp:
 
     def start_game(self):
         if self.game_running:
+            self._status("⚠️ Ya hay una sesión de juego activa.")
             return
         profile=self.game_profile_var.get().strip() or "generic"
 
@@ -585,10 +586,6 @@ class NariApp:
             )
         self.game_target_title=title
 
-        self.jjs_dummy_center_smooth=None
-        self.jjs_dummy_stable_hits=0
-        self.jjs_dummy_prev_distance=None
-        self.jjs_dummy_prev_aim_error=None
         self.jjs_human_center_smooth=None
         self.jjs_human_stable_hits=0
         self.jjs_human_prev_aim_error=None
