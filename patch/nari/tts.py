@@ -11,9 +11,17 @@ class TTS:
         self.on_error=None
         self.voice_file=Path(voice_file) if voice_file else None
         self._lock=threading.Lock()
+        self._process=None
 
     def stop(self):
-        return
+        with self._lock:
+            proc=self._process
+            self._process=None
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
     def _say_windows(self,text):
         script=r'''
@@ -32,16 +40,30 @@ $s.Dispose()
         env=os.environ.copy()
         env["NARI_TTS_TEXT"]=str(text)
         try:
-            result=subprocess.run(
+            proc=subprocess.Popen(
                 ["powershell","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",script],
-                check=False,
-                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 env=env,
                 creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0),
-                timeout=40,
             )
-            return result.returncode,(result.stderr or "").strip()
+            with self._lock:
+                self._process=proc
+            try:
+                stdout,stderr=proc.communicate(timeout=40)
+                return proc.returncode,(stderr or "").strip()
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                return -1,"la síntesis tardó demasiado"
+            finally:
+                with self._lock:
+                    if self._process is proc:
+                        self._process=None
         except Exception as exc:
             return -1,str(exc)
 
