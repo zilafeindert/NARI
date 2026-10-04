@@ -1,0 +1,9 @@
+NARI 5.5.24
+
+JJS coordinated movement + M1.
+
+- Added a real advance_m1 controller primitive that holds W while pressing M1.
+- The action is recognized by the game brain, VLM action contract and learner.
+- The Dummy local controller now uses advance_m1 instead of separating approach and attack.
+- The main JJS decision path uses the same coordinated action.
+- M1 is executed inside the Roblox viewport before the simultaneous W + left-click window.
