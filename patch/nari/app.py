@@ -93,8 +93,11 @@ class NariApp:
         self.jjs_dummy_center = None
         self.jjs_dummy_center_smooth = None
         self.jjs_dummy_stable_hits = 0
+        self.jjs_dummy_prev_distance = None
+        self.jjs_dummy_prev_aim_error = None
         self.jjs_human_center_smooth = None
         self.jjs_human_stable_hits = 0
+        self.jjs_human_prev_aim_error = None
         self.jjs_camera_x_sign = 1
         self.jjs_camera_y_sign = 1
         self.jjs_last_camera_command = None
@@ -581,8 +584,11 @@ class NariApp:
         self.jjs_dummy_center=None
         self.jjs_dummy_center_smooth=None
         self.jjs_dummy_stable_hits=0
+        self.jjs_dummy_prev_distance=None
+        self.jjs_dummy_prev_aim_error=None
         self.jjs_human_center_smooth=None
         self.jjs_human_stable_hits=0
+        self.jjs_human_prev_aim_error=None
         self.jjs_camera_x_sign=1
         self.jjs_camera_y_sign=1
         self.jjs_last_camera_command=None
@@ -760,6 +766,9 @@ class NariApp:
             return {"type":"wait","seconds":0.10}, "combat-stun-wait"
 
         if not visible:
+            self.jjs_human_center_smooth=None
+            self.jjs_human_stable_hits=0
+            self.jjs_human_prev_aim_error=None
             self.jjs_combat_phase="search"
             return None, "combat-search"
 
@@ -783,6 +792,7 @@ class NariApp:
         if "target_center_x" not in result or "target_center_y" not in result:
             self.jjs_human_center_smooth=None
             self.jjs_human_stable_hits=0
+            self.jjs_human_prev_aim_error=None
             self.jjs_combat_phase="aim-wait"
             return {"type":"wait","seconds":0.08}, "combat-no-center"
 
@@ -813,6 +823,11 @@ class NariApp:
             return {"type":"wait","seconds":0.08}, "combat-aim-wait"
 
         cx,cy=aim_center
+        aim_error=((cx-0.5)**2 + (cy-0.5)**2)**0.5
+        if self.jjs_human_prev_aim_error is not None:
+            result["aim_alignment_delta"]=float(self.jjs_human_prev_aim_error-aim_error)
+        self.jjs_human_prev_aim_error=aim_error
+
         centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
         if not centered and confidence>=0.58:
             if now < self.jjs_camera_observe_until:
@@ -879,6 +894,11 @@ class NariApp:
             self.game_running=False
             try:
                 self.computer.release_all()
+            except Exception:
+                pass
+            try:
+                if self.learning_enabled:
+                    self.agent.game_learner.end_session()
             except Exception:
                 pass
             try:
@@ -1062,13 +1082,24 @@ class NariApp:
                     marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
                     size_ratio=marker_size/max(1,frame.shape[1])
                     if size_ratio < 0.022:
-                        result["target_distance"]=0.90
+                        local_distance=0.90
                     elif size_ratio < 0.035:
-                        result["target_distance"]=0.76
+                        local_distance=0.76
                     elif size_ratio < 0.052:
-                        result["target_distance"]=0.58
+                        local_distance=0.58
                     else:
-                        result["target_distance"]=0.38
+                        local_distance=0.38
+                    result["target_distance"]=local_distance
+
+                    # Señales objetivas para aprendizaje: distancia y error de centrado.
+                    if self.jjs_dummy_prev_distance is not None:
+                        result["target_distance_delta"]=float(local_distance-self.jjs_dummy_prev_distance)
+                    self.jjs_dummy_prev_distance=local_distance
+
+                    aim_error=((self.jjs_dummy_center[0]-0.5)**2 + (self.jjs_dummy_center[1]-0.5)**2)**0.5
+                    if self.jjs_dummy_prev_aim_error is not None:
+                        result["aim_alignment_delta"]=float(self.jjs_dummy_prev_aim_error-aim_error)
+                    self.jjs_dummy_prev_aim_error=aim_error
                 else:
                     self.jjs_dummy_lost_cycles+=1
                     # Conservamos el ultimo centro solo como memoria, no como permiso
@@ -1199,11 +1230,14 @@ class NariApp:
                 # en vez de dejar que el fallback exploratorio la sustituya.
                 chosen=candidates[0]
                 chosen_kind=str(chosen.get("type","")).lower()
-                if chosen_kind in {"m1","block","hold","double_tap_w","press","keys","camera_turn","camera_drag","camera_key_turn","wait"}:
+                if chosen_kind in {"m1","block","hold","double_tap_w","press","keys","wait"}:
                     action=self.agent.game_validate_action(chosen)
                     source="vision-combat"
                 else:
                     action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
+            elif profile == "jjs" and result.get("error"):
+                action={"type":"wait","seconds":0.10}
+                source="perception-error"
             else:
                 action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
                 if profile == "jjs" and str(action.get("type","")).lower() in {"camera_turn","camera_drag","camera_key_turn"}:
