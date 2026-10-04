@@ -1029,11 +1029,7 @@ class NariApp:
 
             self.jjs_vlm_busy=True
             try:
-                result=self.agent.vision(
-                    goal, imgs, profile="jjs",
-                    previous_action=previous_action,
-                    state_key=state_key,
-                )
+                result=self.agent.jjs_target_scan(imgs)
             except Exception as exc:
                 result={
                     "actions":[],
