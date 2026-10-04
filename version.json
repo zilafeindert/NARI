@@ -1,8 +1,8 @@
 {
-  "version": "5.5.18",
-  "tag": "v5.5.18",
+  "version": "5.5.19",
+  "tag": "v5.5.19",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-dummy-active-fallback-20"
+  "release_build": "jjs-dummy-control-audit-21"
 }
