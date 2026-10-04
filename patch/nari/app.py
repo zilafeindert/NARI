@@ -478,9 +478,16 @@ class NariApp:
             result = self.agent.chat(text, automation_allowed=self.auto_var.get())
             reply = result.get("reply", "") or "…"
             self._append_chat("NARI", reply, "nari")
-            if self.voice_var.get(): self.tts.say(reply)
+            if self.voice_var.get():
+                self.tts.say(reply)
             log = self.agent.execute_actions(result, self.auto_var.get())
             self._status(("Hecho • " + log[:110]) if log else "🎙 Di «NARI»")
+        except Exception as exc:
+            self._status("❌ NARI: "+str(exc)[:160])
+            try:
+                self._append_chat("NARI", "Tuve un error al procesar eso. Revisa el estado de NARI.", "nari")
+            except Exception:
+                pass
         finally:
             self.busy = False
 
