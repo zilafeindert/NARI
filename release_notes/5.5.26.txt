@@ -1,0 +1,11 @@
+NARI 5.5.26
+
+JJS control pipeline fix.
+
+- Decoupled VLM perception from the real-time input loop so slow vision inference cannot freeze controls.
+- Added active recovery movement while the VLM is starting, unavailable, or stale.
+- Increased camera reacquisition frequency when no target is visible.
+- Added brief human-target persistence to survive individual missed VLM frames.
+- Human targets now use coordinated advance_m1 once centered instead of relying on an unreliable VLM distance estimate.
+- Compacted the JJS VLM response schema and reduced inference context/output for lower latency.
+- Added live VLM age/target diagnostics to the game status.
