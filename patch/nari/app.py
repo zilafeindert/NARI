@@ -111,6 +111,8 @@ class NariApp:
         self.jjs_last_attack_ts = -10.0
         self.jjs_last_vlm_ts = 0.0
         self.jjs_dummy_fallback_action_ts = 0.0
+        self.jjs_dummy_approach_count = 0
+        self.jjs_dummy_attack_mode = False
         self.root.bind("<F8>", lambda e: self.emergency_stop())
         self._build_ui()
         self.global_hotkey_running = True
@@ -607,6 +609,8 @@ class NariApp:
         self.jjs_last_vlm_ts=0.0
         self.jjs_dummy_fallback_action_ts=0.0
         self.jjs_last_dummy_action_ts=0.0
+        self.jjs_dummy_approach_count=0
+        self.jjs_dummy_attack_mode=False
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -857,10 +861,17 @@ class NariApp:
                 # Respaldo local: si la percepción VLM está atrasada, el Dummy
                 # todavía puede provocar movimiento/ataque sin quedarse congelado.
                 if centered and now-self.jjs_last_dummy_action_ts>=0.24:
-                    if distance>0.60:
+                    # El marcador verde puede mantener un tamaño casi constante;
+                    # no lo usamos como unica prueba de rango. Tras 4 microacercamientos
+                    # el controlador entra en ataque y prueba M1 de forma determinista.
+                    if distance<=0.60 or self.jjs_dummy_approach_count>=4:
+                        self.jjs_dummy_attack_mode=True
+
+                    if not self.jjs_dummy_attack_mode:
                         try:
                             exec_result=self.computer.act({"type":"hold","key":"w","seconds":0.16})
                             if str(exec_result)=="OK":
+                                self.jjs_dummy_approach_count+=1
                                 self.jjs_last_dummy_action_ts=time.monotonic()
                                 self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
                             else:
@@ -868,7 +879,8 @@ class NariApp:
                         except Exception as exc:
                             self._status("⚠️ Dummy W: "+str(exc)[:90])
                         continue
-                    elif now-self.jjs_last_attack_ts>=0.24:
+
+                    if now-self.jjs_last_attack_ts>=0.24:
                         try:
                             exec_result=self.computer.act({"type":"m1","seconds":0.055})
                             if str(exec_result)=="OK":
@@ -964,6 +976,8 @@ class NariApp:
                     with self.jjs_camera_state_lock:
                         self.jjs_camera_target=None
                         self.jjs_camera_target_ts=0.0
+                    self.jjs_dummy_approach_count=0
+                    self.jjs_dummy_attack_mode=False
 
                     # Very slow reacquisition only after a real loss of target.
                     if now-no_target_since>=1.8 and now>=self.jjs_camera_search_next_ts:
@@ -1467,11 +1481,20 @@ class NariApp:
                     td=0.82
 
                 centered=abs(tx-0.5)<=0.070 and abs(ty-0.5)<=0.085
-                if centered and time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)>=0.18:
-                    if td>0.60:
+                if centered:
+                    if td<=0.60 or self.jjs_dummy_approach_count>=4:
+                        self.jjs_dummy_attack_mode=True
+                    if (
+                        not self.jjs_dummy_attack_mode
+                        and time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)>=0.18
+                    ):
                         forced_action={"type":"hold","key":"w","seconds":0.18}
                         forced_source="target-approach"
                     elif (
+                        self.jjs_dummy_attack_mode
+                        and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.18
+                        and not bool(result.get("cooldown_active",False))
+                    ):
                         not bool(result.get("cooldown_active",False))
                         and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.14
                     ):
@@ -1481,6 +1504,7 @@ class NariApp:
                             for candidate in candidates
                         )
                         if self.jjs_confirmed_hits<1 or not has_combo_followup:
+                            self.jjs_dummy_attack_mode=True
                             forced_action={"type":"m1","seconds":0.055}
                             forced_source="target-attack"
 
