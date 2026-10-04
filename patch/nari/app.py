@@ -613,6 +613,11 @@ class NariApp:
             pass
         if not self.computer.focus_title(title):
             self._status("⚠️ La ventana del juego perdió el foco; intentando continuar.")
+        if profile == "jjs":
+            try:
+                self.computer.prepare_camera()
+            except Exception as exc:
+                self._status("⚠️ Preparación de cámara: "+str(exc)[:100])
         self.computer.minimize_host()
         self.game_cycle=0
         self.last_game_frame_ts=0.0
@@ -684,7 +689,7 @@ class NariApp:
             messagebox.showwarning("Cámara", "No encontré la ventana del juego.")
             return
         try:
-            self.computer.focus_window(self.computer.target_hwnd)
+            self.computer.prepare_camera()
             self.computer.camera_drag(420, 0, 0.10)
             time.sleep(0.12)
             self.game_status.set("Cámara: giro de prueba enviado")
