@@ -456,3 +456,5 @@ class VoiceListener:
                 except Exception: pass
                 try: stream.close()
                 except Exception: pass
+            self.running=False
+            self.thread=None
