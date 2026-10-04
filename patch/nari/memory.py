@@ -93,7 +93,20 @@ class Memory:
             self.db.commit()
 
     def recall(self,query="",limit=8):
-        rows=list(self.db.execute("SELECT * FROM memories ORDER BY importance DESC,created DESC LIMIT ?",(int(limit),)))
+        limit=max(1,int(limit or 8))
+        query=str(query or "").strip()
+        if query:
+            like=f"%{query}%"
+            rows=list(self.db.execute(
+                "SELECT * FROM memories WHERE text LIKE ? OR kind LIKE ? "
+                "ORDER BY importance DESC,created DESC LIMIT ?",
+                (like,like,limit)
+            ))
+        else:
+            rows=list(self.db.execute(
+                "SELECT * FROM memories ORDER BY importance DESC,created DESC LIMIT ?",
+                (limit,)
+            ))
         return [dict(r) for r in rows]
 
     def add_episode(self,kind,title,summary,extra=""):
