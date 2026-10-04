@@ -47,7 +47,7 @@ class GameBrain:
 
     def feedback(self, observation: str, action: dict, reward: float,
                  confidence: float = 0.0, note: str = "", goal_state: str = ""):
-        key = self.learner.action_key(action)
+        key = self.learner.action_key(action, self.profile)
         reward = max(-1.0, min(1.0, float(reward)))
         self.last_observation = str(observation or "")[:400]
         self.last_goal_state = str(goal_state or self.last_goal_state)[:250]
@@ -255,7 +255,7 @@ class GameBrain:
             if not isinstance(action, dict):
                 continue
             checked = self.validate_action(action, commit=False)
-            key = self.learner.action_key(checked)
+            key = self.learner.action_key(checked, self.profile)
             if key in {"unknown", "wait"} and self.stuck_count < 2:
                 continue
             valid.append((checked, key))
