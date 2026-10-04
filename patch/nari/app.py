@@ -750,12 +750,42 @@ class NariApp:
             except Exception:
                 marker=None
 
+            using_vlm_dummy=False
+            if marker is None:
+                with self.jjs_camera_state_lock:
+                    cached_dummy=(
+                        self.jjs_camera_target.copy()
+                        if isinstance(self.jjs_camera_target,dict)
+                        and self.jjs_camera_target.get("kind")=="dummy"
+                        else None
+                    )
+                    cached_dummy_ts=self.jjs_camera_target_ts
+                if cached_dummy is not None and now-cached_dummy_ts<=0.90:
+                    marker={
+                        "center_x":float(cached_dummy.get("center_x",0.5)),
+                        "center_y":float(cached_dummy.get("center_y",0.5)),
+                        "width":24,
+                        "height":24,
+                        "confidence":0.60,
+                        "_source":"vlm",
+                        "distance":cached_dummy.get("distance"),
+                        "distance_delta":cached_dummy.get("distance_delta"),
+                        "aim_alignment_delta":cached_dummy.get("aim_alignment_delta"),
+                    }
+                    using_vlm_dummy=True
+
             if marker is not None:
                 last_dummy_seen=now
                 no_target_since=None
                 raw=(float(marker["center_x"]),float(marker["center_y"]))
 
-                if smooth is None:
+                if using_vlm_dummy:
+                    smooth=(
+                        max(0.0,min(1.0,raw[0])),
+                        max(0.0,min(1.0,raw[1])),
+                    )
+                    stable_hits=2
+                elif smooth is None:
                     smooth=raw
                     stable_hits=1
                 else:
@@ -777,7 +807,12 @@ class NariApp:
 
                 marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
                 size_ratio=marker_size/max(1,frame.shape[1])
-                if size_ratio<0.022:
+                if using_vlm_dummy and marker.get("distance") is not None:
+                    try:
+                        distance=max(0.0,min(1.0,float(marker.get("distance"))))
+                    except Exception:
+                        distance=0.82
+                elif size_ratio<0.022:
                     distance=0.90
                 elif size_ratio<0.035:
                     distance=0.76
@@ -797,10 +832,19 @@ class NariApp:
                     "center_x":smooth[0],
                     "center_y":smooth[1],
                     "distance":distance,
-                    "distance_delta":dist_delta,
-                    "aim_alignment_delta":aim_delta,
+                    "distance_delta":(
+                        marker.get("distance_delta")
+                        if using_vlm_dummy and marker.get("distance_delta") is not None
+                        else dist_delta
+                    ),
+                    "aim_alignment_delta":(
+                        marker.get("aim_alignment_delta")
+                        if using_vlm_dummy and marker.get("aim_alignment_delta") is not None
+                        else aim_delta
+                    ),
                     "stable":True,
                     "seen_ts":now,
+                    "source":"vlm" if using_vlm_dummy else "local-marker",
                 }
                 with self.jjs_camera_state_lock:
                     self.jjs_camera_target=target
@@ -1098,7 +1142,7 @@ class NariApp:
             if (
                 now-self.jjs_last_dash_ts>=1.0
                 and self.jjs_confirmed_hits==0
-                and not cooldown
+                and not flag("cooldown_active")
             ):
                 # Solo usa Q para cerrar si estamos realmente lejos y la habilidad esta disponible.
                 self.jjs_last_dash_ts=now
@@ -1118,9 +1162,17 @@ class NariApp:
         if not isinstance(result,dict):
             return False
 
-        visible=bool(result.get("target_visible",False))
         target_name=str(result.get("target_name","") or "").strip().lower()
-        is_dummy=bool(result.get("target_is_dummy",False)) or target_name=="dummy" or "dummy" in target_name
+        observation_text=str(result.get("observation","") or "").strip().lower()
+        decision_text=str(result.get("decision_note","") or "").strip().lower()
+        is_dummy=(
+            bool(result.get("target_is_dummy",False))
+            or target_name=="dummy"
+            or "dummy" in target_name
+            or "dummy" in observation_text
+            or "dummy" in decision_text
+        )
+        visible=bool(result.get("target_visible",False)) or is_dummy
         if not visible or not is_dummy:
             self.jjs_vlm_dummy_hits=0
             self.jjs_vlm_dummy_center=None
@@ -1128,9 +1180,12 @@ class NariApp:
             return False
 
         try:
-            confidence=max(0.0,min(1.0,float(result.get("confidence",0.0) or 0.0)))
-            cx=max(0.0,min(1.0,float(result.get("target_center_x",0.5) or 0.5)))
-            cy=max(0.0,min(1.0,float(result.get("target_center_y",0.5) or 0.5)))
+            raw_conf=result.get("confidence",0.60 if is_dummy else 0.0)
+            confidence=max(0.0,min(1.0,float(raw_conf)))
+            raw_cx=result.get("target_center_x",0.5)
+            raw_cy=result.get("target_center_y",0.5)
+            cx=max(0.0,min(1.0,float(raw_cx)))
+            cy=max(0.0,min(1.0,float(raw_cy)))
         except Exception:
             self.jjs_vlm_dummy_hits=0
             return False
@@ -1161,7 +1216,8 @@ class NariApp:
             return False
 
         try:
-            distance=max(0.0,min(1.0,float(result.get("target_distance",0.82) or 0.82)))
+            raw_distance=result.get("target_distance",0.82)
+            distance=max(0.0,min(1.0,float(raw_distance)))
         except Exception:
             distance=0.82
 
@@ -1394,9 +1450,9 @@ class NariApp:
             forced_source=""
             if profile == "jjs" and marker_stable and local_dummy:
                 try:
-                    tx=max(0.0,min(1.0,float(result.get("target_center_x",0.5) or 0.5)))
-                    ty=max(0.0,min(1.0,float(result.get("target_center_y",0.5) or 0.5)))
-                    td=max(0.0,min(1.0,float(result.get("target_distance",0.82) or 0.82)))
+                    tx=max(0.0,min(1.0,float(result.get("target_center_x",0.5))))
+                    ty=max(0.0,min(1.0,float(result.get("target_center_y",0.5))))
+                    td=max(0.0,min(1.0,float(result.get("target_distance",0.82))))
                 except Exception:
                     tx=ty=0.5
                     td=0.82
