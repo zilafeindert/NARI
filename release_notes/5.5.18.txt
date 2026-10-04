@@ -1,0 +1,12 @@
+NARI 5.5.18
+
+JJS Dummy activity fix.
+
+- Added an independent local Dummy combat fallback.
+- Dummy approach/attack no longer requires a successful VLM inference cycle.
+- Added VLM Dummy fallback when the local green marker detector misses the marker.
+- Stable VLM recognition can activate the same local target controller.
+- Accepts target_name="Dummy" even when target_is_dummy is omitted.
+- Uses safe default target coordinates when the VLM recognizes the Dummy but omits coordinates.
+- Keeps the local camera controller as the single owner of camera movement.
+- Preserves the audited combat, learning, updater and infrastructure fixes from 5.5.17.
