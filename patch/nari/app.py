@@ -629,9 +629,6 @@ class NariApp:
         if not self.computer.focus_title(title):
             self._status("⚠️ La ventana del juego perdió el foco; intentando continuar.")
         self.computer.minimize_host()
-        self.game_running=True
-        if profile == "jjs":
-            self._start_jjs_camera_controller()
         self.game_cycle=0
         self.last_game_frame_ts=0.0
         self.last_learning_frame=None
@@ -655,6 +652,10 @@ class NariApp:
         with self.game_action_lock:
             self.game_recommended_actions = []
             self.game_recommendation_ts = 0.0
+
+        self.game_running=True
+        if profile == "jjs":
+            self._start_jjs_camera_controller()
 
         threading.Thread(target=self._safe_game_loop,args=(profile,),daemon=True,name="NARI-game-loop").start()
         self.game_status.set(f"ACTIVO • {profile} • foco: {title}")
@@ -1099,6 +1100,7 @@ class NariApp:
         previous_goal_state = ""
         last_decision_ui = 0.0
         target_lost_cycles = 0
+        next_vlm_ts = 0.0
 
         while self.game_running:
             if __import__("sys").platform == "win32":
@@ -1137,10 +1139,20 @@ class NariApp:
                 continue
 
             previous_label = self.agent.game_learner.action_key(previous_action) if isinstance(previous_action, dict) else "ninguna"
+
+            now_loop=time.monotonic()
+            if now_loop < next_vlm_ts:
+                time.sleep(min(0.03,max(0.005,next_vlm_ts-now_loop)))
+                continue
+
             try:
                 result = self.agent.vision(goal, imgs, profile=profile, previous_action=previous_label, state_key=state)
+                next_vlm_ts=time.monotonic()+1.0/max(
+                    1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0)
+                )
             except Exception as exc:
                 result = {"actions": [], "reply": "", "error": str(exc), "confidence": 0.0, "observation": ""}
+                next_vlm_ts=time.monotonic()+0.40
 
             # Recompensa estricta para la accion anterior.
             if previous_action is not None:
@@ -1215,6 +1227,7 @@ class NariApp:
                     cached_ts=self.jjs_camera_target_ts
 
                 if cached is not None and now_target-cached_ts<=0.50:
+                    self.jjs_dummy_lost_cycles=0
                     marker_stable=bool(cached.get("stable",False))
                     result["target_visible"]=True
                     result["target_is_dummy"]=cached.get("kind")=="dummy"
