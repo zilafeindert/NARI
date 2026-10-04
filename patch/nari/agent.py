@@ -334,6 +334,13 @@ class Agent:
             "Devuelve SOLO JSON valido: "
             '{"observation":"...","goal_state":"...","decision_note":"...","confidence":0.0,'
             '"action_effect":0.0,"progress_delta":0.0,'
+            '"target_visible":false,"target_is_dummy":false,"target_center_x":0.5,'
+            '"target_center_y":0.5,"target_distance":0.75,"target_distance_delta":0.0,'
+            '"target_stunned":false,"target_blocking":false,"opponent_attacking":false,'
+            '"player_stunned":false,"player_ragdolled":false,"player_dead":false,'
+            '"hit_confirmed":false,"block_success":false,"ability_confirmed":false,'
+            '"ability_whiff":false,"cooldown_active":false,"ko_confirmed":false,'
+            '"enemy_health_delta":0.0,"player_health_delta":0.0,"aim_alignment_delta":0.0,'
             '"actions":[{"type":"..."},{"type":"..."}]}. '
             "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
             "el controlador local ejecutara SOLO UNA. "
