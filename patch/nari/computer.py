@@ -394,29 +394,41 @@ class Computer:
 
     def camera_drag(self, dx, dy=0, seconds=0.08):
         self.keep_target_focused()
-        # No recentrar en cada microgiro: hacerlo puede introducir movimiento
-        # artificial y jitter en la camara de Roblox.
+        # Recentrar solo si el puntero realmente esta fuera del viewport.
         if not self._cursor_inside_target():
             self._center_cursor_in_target()
-        total=max(0.055, min(0.14, float(seconds)))
-        steps=max(4, min(10, int(round(total*70))))
-        sx=float(dx)/steps
-        sy=float(dy)/steps
+
+        total=max(0.080, min(0.180, float(seconds)))
+        # Una trayectoria de 8-14 pasos con easing evita tanto saltos como
+        # el aspecto robotico de pequeños movimientos independientes.
+        steps=max(8, min(14, int(round(total*78))))
+        dx=float(dx)
+        dy=float(dy)
+
         self._mouse_button("right", True)
         try:
-            # Darle tiempo a Roblox para registrar RMB antes del primer delta.
-            time.sleep(0.045)
-            for _ in range(steps):
+            time.sleep(0.025)
+
+            last_x=0.0
+            last_y=0.0
+            for i in range(1,steps+1):
                 if self.stop_event:
                     break
-                mx=round(sx)
-                my=round(sy)
-                if mx==0 and dx:
-                    mx=1 if dx>0 else -1
-                if my==0 and dy:
-                    my=1 if dy>0 else -1
-                self._mouse_move_rel(mx,my)
-                time.sleep(max(0.004,total/steps*0.70))
+
+                t=i/float(steps)
+                # Smoothstep: empieza y termina suavemente.
+                eased=t*t*(3.0-2.0*t)
+                target_x=dx*eased
+                target_y=dy*eased
+
+                mx=int(round(target_x-last_x))
+                my=int(round(target_y-last_y))
+                last_x=target_x
+                last_y=target_y
+
+                if mx or my:
+                    self._mouse_move_rel(mx,my)
+                time.sleep(total/steps)
         finally:
             self._mouse_button("right", False)
             time.sleep(0.006)
