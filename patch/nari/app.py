@@ -87,10 +87,6 @@ class NariApp:
         self.computer.set_host_window(self.root.winfo_id())
         self.game_target_title = ""
 
-        self.jjs_dummy_center_smooth = None
-        self.jjs_dummy_stable_hits = 0
-        self.jjs_dummy_prev_distance = None
-        self.jjs_dummy_prev_aim_error = None
         self.jjs_human_center_smooth = None
         self.jjs_human_stable_hits = 0
         self.jjs_human_prev_aim_error = None
@@ -620,8 +616,6 @@ class NariApp:
                 self.game_learning_status.set("Aprendizaje: sesión iniciada")
             except Exception as exc:
                 self._status("⚠ Aprendizaje: "+str(exc)[:90])
-
-        with self.game_action_lock:
 
         self.game_running=True
         if profile == "jjs":
