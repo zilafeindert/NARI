@@ -116,6 +116,7 @@ class NariApp:
         self.jjs_last_dash_ts = -10.0
         self.jjs_last_block_ts = -10.0
         self.jjs_last_tactical_ts = -10.0
+        self.jjs_last_attack_ts = -10.0
         self.game_recommended_actions = []
         self.game_recommendation_ts = 0.0
         self.game_action_lock = threading.Lock()
@@ -604,6 +605,7 @@ class NariApp:
         self.jjs_last_dash_ts=-10.0
         self.jjs_last_block_ts=-10.0
         self.jjs_last_tactical_ts=-10.0
+        self.jjs_last_attack_ts=-10.0
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -1081,6 +1083,34 @@ class NariApp:
         self.jjs_combat_phase="neutral"
         return None, "combat-neutral"
 
+    def _jjs_apply_target_telemetry(self, result):
+        """Mezcla la telemetria del controlador local antes de calcular recompensa."""
+        if not isinstance(result,dict):
+            return False,False
+
+        marker_stable=False
+        with self.jjs_camera_state_lock:
+            cached=self.jjs_camera_target.copy() if isinstance(self.jjs_camera_target,dict) else None
+            cached_ts=self.jjs_camera_target_ts
+
+        if cached is not None and time.monotonic()-cached_ts<=0.50:
+            marker_stable=bool(cached.get("stable",False))
+            result["target_visible"]=True
+            is_dummy=cached.get("kind")=="dummy"
+            result["target_is_dummy"]=is_dummy
+            result["target_name"]="Dummy" if is_dummy else "opponent"
+            result["target_center_x"]=float(cached.get("center_x",0.5))
+            result["target_center_y"]=float(cached.get("center_y",0.5))
+            if cached.get("distance") is not None:
+                result["target_distance"]=float(cached["distance"])
+            if cached.get("distance_delta") is not None:
+                result["target_distance_delta"]=float(cached["distance_delta"])
+            if cached.get("aim_alignment_delta") is not None:
+                result["aim_alignment_delta"]=float(cached["aim_alignment_delta"])
+            return marker_stable,is_dummy
+
+        return False,False
+
     def _safe_game_loop(self, profile: str):
         try:
             self._game_loop(profile)
@@ -1164,13 +1194,18 @@ class NariApp:
                 continue
 
             try:
-                result = self.agent.vision(goal, imgs, profile=profile, previous_action=previous_label, state_key=state)
+                result = self.agent.vision(goal, imgs, profile=profile, previous_action=previous_label, state_key=learning_state)
                 next_vlm_ts=time.monotonic()+1.0/max(
                     1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0)
                 )
             except Exception as exc:
                 result = {"actions": [], "reply": "", "error": str(exc), "confidence": 0.0, "observation": ""}
                 next_vlm_ts=time.monotonic()+0.40
+
+            marker_stable=False
+            local_dummy=False
+            if profile == "jjs":
+                marker_stable,local_dummy=self._jjs_apply_target_telemetry(result)
 
             # Recompensa estricta para la accion anterior.
             if previous_action is not None:
@@ -1237,58 +1272,36 @@ class NariApp:
                     safe_candidates.append(item)
                 candidates=safe_candidates[:2]
 
-            # El hilo local de camara mantiene el objetivo actualizado sin esperar al VLM.
-            if profile == "jjs":
-                now_target=time.monotonic()
-                with self.jjs_camera_state_lock:
-                    cached=self.jjs_camera_target.copy() if isinstance(self.jjs_camera_target,dict) else None
-                    cached_ts=self.jjs_camera_target_ts
-
-                if cached is not None and now_target-cached_ts<=0.50:
-                    self.jjs_dummy_lost_cycles=0
-                    marker_stable=bool(cached.get("stable",False))
-                    result["target_visible"]=True
-                    result["target_is_dummy"]=cached.get("kind")=="dummy"
-                    result["target_name"]="Dummy" if cached.get("kind")=="dummy" else "opponent"
-                    result["target_center_x"]=float(cached.get("center_x",0.5))
-                    result["target_center_y"]=float(cached.get("center_y",0.5))
-                    if cached.get("distance") is not None:
-                        result["target_distance"]=float(cached["distance"])
-                    if cached.get("distance_delta") is not None:
-                        result["target_distance_delta"]=float(cached["distance_delta"])
-                    if cached.get("aim_alignment_delta") is not None:
-                        result["aim_alignment_delta"]=float(cached["aim_alignment_delta"])
-                else:
-                    marker_stable=False
-
-                if marker_stable and result.get("target_is_dummy"):
-                    try:
-                        target_x=float(result.get("target_center_x",0.5) or 0.5)
-                        target_y=float(result.get("target_center_y",0.5) or 0.5)
-                        distance=float(result.get("target_distance",0.82) or 0.82)
-                    except Exception:
-                        target_x=target_y=0.5
-                        distance=0.82
-                    target_x=max(0.0,min(1.0,target_x))
-                    target_y=max(0.0,min(1.0,target_y))
-                    centered=abs(target_x-0.5)<=0.070 and abs(target_y-0.5)<=0.085
-                    distance=max(0.0,min(1.0,distance))
-                    if centered:
-                        if distance>0.60:
-                            forced_action={"type":"hold","key":"w","seconds":0.18}
-                            forced_source="target-approach"
-                        elif not bool(result.get("cooldown_active",False)):
-                            forced_action={"type":"m1","seconds":0.055}
-                            forced_source="target-attack"
-
             # El controlador local es el unico dueño de la cámara JJS.
+            # Control duro del Dummy: solo se ejecuta con telemetria estable.
+            forced_action=None
+            forced_source=""
+            if profile == "jjs" and marker_stable and local_dummy:
+                try:
+                    tx=max(0.0,min(1.0,float(result.get("target_center_x",0.5) or 0.5)))
+                    ty=max(0.0,min(1.0,float(result.get("target_center_y",0.5) or 0.5)))
+                    td=max(0.0,min(1.0,float(result.get("target_distance",0.82) or 0.82)))
+                except Exception:
+                    tx=ty=0.5
+                    td=0.82
+
+                centered=abs(tx-0.5)<=0.070 and abs(ty-0.5)<=0.085
+                if centered:
+                    if td>0.60:
+                        forced_action={"type":"hold","key":"w","seconds":0.18}
+                        forced_source="target-approach"
+                    elif not bool(result.get("cooldown_active",False)) and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.14:
+                        forced_action={"type":"m1","seconds":0.055}
+                        forced_source="target-attack"
+                        self.jjs_last_attack_ts=time.monotonic()
+
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
             tactical_action=None
             tactical_source=""
             if profile == "jjs":
                 local_visible=bool(result.get("target_visible",False))
-                local_dummy=bool(result.get("target_is_dummy",False)) and local_visible
+                local_dummy=local_dummy and local_visible
                 target_name_check=str(result.get("target_name","") or "").lower()
                 if local_dummy or ("dummy" not in target_name_check and local_visible):
                     tactical_action,tactical_source=self._jjs_combat_override(
@@ -1314,6 +1327,32 @@ class NariApp:
                             break
 
             confidence=float(result.get("confidence",0.0) or 0.0)
+
+            learning_state=state
+            if profile == "jjs":
+                def bit(name):
+                    value=result.get(name,False)
+                    if isinstance(value,str):
+                        return int(value.strip().lower() in {"true","1","yes","si","sí","y"})
+                    return int(bool(value))
+                def bucket(value,step=0.10):
+                    try:
+                        return max(0,min(10,int(float(value)/step)))
+                    except Exception:
+                        return 0
+                learning_state=(
+                    state
+                    + f"|vis{bit('target_visible')}"
+                    + f"|dummy{bit('target_is_dummy')}"
+                    + f"|aimx{bucket(result.get('target_center_x',0.5),0.10)}"
+                    + f"|aimy{bucket(result.get('target_center_y',0.5),0.10)}"
+                    + f"|dist{bucket(result.get('target_distance',0.75),0.10)}"
+                    + f"|oppatk{bit('opponent_attacking')}"
+                    + f"|guard{bit('target_blocking')}"
+                    + f"|stun{bit('target_stunned')}"
+                    + f"|pstun{bit('player_stunned')}"
+                    + f"|cd{bit('cooldown_active')}"
+                )
             if forced_action is not None:
                 action=self.agent.game_validate_action(forced_action)
                 source=forced_source
@@ -1373,7 +1412,7 @@ class NariApp:
                 previous_goal_state = ""
             else:
                 previous_action = action
-                previous_state = state
+                previous_state = learning_state
                 previous_frame = frame.copy()
                 previous_confidence = confidence
                 previous_observation = observation
