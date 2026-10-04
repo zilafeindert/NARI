@@ -150,7 +150,8 @@ class GameLearner:
         }
         for old_key,new_key in aliases.items():
             rows=self.db.execute(
-                "SELECT profile,state,trials,value,updated FROM game_policy WHERE action=?",
+                "SELECT profile,state,trials,value,updated FROM game_policy "
+                "WHERE profile='jjs' AND action=?",
                 (old_key,),
             ).fetchall()
             for row in rows:
@@ -182,7 +183,7 @@ class GameLearner:
                     )
 
             self.db.execute(
-                "UPDATE game_experiences SET action=? WHERE action=?",
+                "UPDATE game_experiences SET action=? WHERE profile='jjs' AND action=?",
                 (new_key,old_key),
             )
         self.db.commit()
@@ -320,7 +321,7 @@ class GameLearner:
         raw = max(-0.45, min(0.55, float(raw_visual_reward)))
         effect = max(-1.0, min(1.0, float(action_effect or 0.0)))
         progress = max(-1.0, min(1.0, float(progress_delta or 0.0)))
-        key = GameLearner.action_key(action)
+        key = GameLearner.action_key(action, "generic")
         score = (0.25 * raw) + (0.55 * effect) + (0.20 * progress)
 
         # Girar la camara puede producir mucho cambio visual sin acercarse
@@ -371,7 +372,7 @@ class GameLearner:
         """
         result=result or {}
         raw=max(-0.45,min(0.55,float(raw_visual_reward or 0.0)))
-        key=GameLearner.action_key(action)
+        key=GameLearner.action_key(action, "jjs")
 
         def num(name,default=0.0):
             try:
@@ -515,42 +516,45 @@ class GameLearner:
         return max(-1.0,min(1.0,score))
 
     @staticmethod
-    def action_key(action: dict) -> str:
+    def action_key(action: dict, profile: str = "generic") -> str:
         if not isinstance(action, dict):
             return "none"
 
         kind = str(action.get("type", "")).lower().strip()
+        profile=str(profile or "generic").lower()
 
         if kind == "hold":
             return f"hold_{str(action.get('key','w')).lower()}"
 
         if kind == "press":
             key = str(action.get("key", "")).lower()
-            aliases = {
-                "q": "dash_q",
-                "r": "special_r",
-                "g": "awaken_g",
-                "f": "block_f",
-                "space": "jump",
-            }
-            return aliases.get(key, f"press_{key or 'unknown'}")
+            if profile == "jjs":
+                aliases = {
+                    "q": "dash_q",
+                    "r": "special_r",
+                    "g": "awaken_g",
+                    "f": "block_f",
+                    "space": "jump",
+                }
+                return aliases.get(key, f"press_{key or 'unknown'}")
+            return f"press_{key or 'unknown'}"
 
         if kind == "block":
-            return "block_f"
+            return "block_f" if profile == "jjs" else "block"
 
         if kind == "double_tap_w":
             return "double_tap_w"
 
         if kind in {"mouse_move_rel","camera_drag","camera_turn","camera_key_turn"}:
-            dx = float(action.get("dx", 0) or 0)
-            dy = float(action.get("dy", 0) or 0)
-            if abs(dx) > abs(dy):
-                return "look_right" if dx > 0 else "look_left"
-            if abs(dy) > 0:
-                return "look_down" if dy > 0 else "look_up"
+            dx=float(action.get("dx",0) or 0)
+            dy=float(action.get("dy",0) or 0)
+            if abs(dx)>abs(dy):
+                return "look_right" if dx>0 else "look_left"
+            if abs(dy)>0:
+                return "look_down" if dy>0 else "look_up"
             return "camera"
 
-        if kind in {"click", "double_click"}:
+        if kind in {"click","double_click"}:
             return "click"
 
         if kind == "wait":
@@ -713,7 +717,7 @@ class GameLearner:
         source: str = "vision",
         note: str = "",
     ):
-        key = self.action_key(action)
+        key = self.action_key(action, profile)
         reward = max(-1.0, min(1.0, float(reward)))
         if not key or key == "unknown":
             return
@@ -760,7 +764,7 @@ class GameLearner:
 
     def remember_transition(self, profile: str, state: str, action: dict):
         self._last_state = state
-        self._last_action = self.action_key(action)
+        self._last_action = self.action_key(action, profile)
         self._last_action_ts = time.monotonic()
 
     def stats(self, profile: str | None = None) -> dict:
