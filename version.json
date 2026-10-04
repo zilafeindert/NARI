@@ -1,8 +1,8 @@
 {
-  "version": "5.5.19",
-  "tag": "v5.5.19",
+  "version": "5.5.20",
+  "tag": "v5.5.20",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-dummy-control-audit-21"
+  "release_build": "jjs-dummy-local-controller-22"
 }
