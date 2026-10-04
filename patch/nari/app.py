@@ -606,6 +606,7 @@ class NariApp:
         self.jjs_last_attack_ts=-10.0
         self.jjs_last_vlm_ts=0.0
         self.jjs_dummy_fallback_action_ts=0.0
+        self.jjs_last_dummy_action_ts=0.0
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -855,20 +856,27 @@ class NariApp:
 
                 # Respaldo local: si la percepción VLM está atrasada, el Dummy
                 # todavía puede provocar movimiento/ataque sin quedarse congelado.
-                if centered and now-self.jjs_last_vlm_ts>=0.75:
+                if centered and now-self.jjs_last_dummy_action_ts>=0.24:
                     if distance>0.60:
-                        if now-self.jjs_dummy_fallback_action_ts>=0.28:
-                            try:
-                                self.computer.act({"type":"hold","key":"w","seconds":0.16})
-                                self.jjs_dummy_fallback_action_ts=time.monotonic()
-                            except Exception as exc:
-                                self._status("⚠️ Dummy W: "+str(exc)[:90])
-                            continue
+                        try:
+                            exec_result=self.computer.act({"type":"hold","key":"w","seconds":0.16})
+                            if str(exec_result)=="OK":
+                                self.jjs_last_dummy_action_ts=time.monotonic()
+                                self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
+                            else:
+                                self._status("⚠️ Dummy W: "+str(exec_result)[:90])
+                        except Exception as exc:
+                            self._status("⚠️ Dummy W: "+str(exc)[:90])
+                        continue
                     elif now-self.jjs_last_attack_ts>=0.24:
                         try:
-                            self.computer.act({"type":"m1","seconds":0.055})
-                            self.jjs_last_attack_ts=time.monotonic()
-                            self.jjs_dummy_fallback_action_ts=time.monotonic()
+                            exec_result=self.computer.act({"type":"m1","seconds":0.055})
+                            if str(exec_result)=="OK":
+                                self.jjs_last_attack_ts=time.monotonic()
+                                self.jjs_last_dummy_action_ts=self.jjs_last_attack_ts
+                                self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
+                            else:
+                                self._status("⚠️ Dummy M1: "+str(exec_result)[:90])
                         except Exception as exc:
                             self._status("⚠️ Dummy M1: "+str(exc)[:90])
                         continue
@@ -1459,7 +1467,7 @@ class NariApp:
                     td=0.82
 
                 centered=abs(tx-0.5)<=0.070 and abs(ty-0.5)<=0.085
-                if centered:
+                if centered and time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)>=0.18:
                     if td>0.60:
                         forced_action={"type":"hold","key":"w","seconds":0.18}
                         forced_source="target-approach"
@@ -1582,12 +1590,11 @@ class NariApp:
                 except Exception:
                     pass
 
-            if (
-                not execution_failed
-                and forced_source == "target-attack"
-                and str(action.get("type","")).lower()=="m1"
-            ):
-                self.jjs_last_attack_ts=time.monotonic()
+            if not execution_failed and profile == "jjs" and forced_action is not None:
+                _forced_now=time.monotonic()
+                self.jjs_last_dummy_action_ts=_forced_now
+                if forced_source == "target-attack" and str(action.get("type","")).lower()=="m1":
+                    self.jjs_last_attack_ts=_forced_now
 
             decision = self.agent.game_learner.action_key(action, profile)
             decision_note = str(result.get("decision_note", "") or "")
