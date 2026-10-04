@@ -245,8 +245,8 @@ class GameBrain:
 
         return {"type": "wait", "seconds": 0.10}
 
-    def arbitrate(self, actions, confidence=0.0, cycle=0):
-        """Elige una sola accion evitando bucles pobres sin mutar estado al probar candidatos."""
+    def arbitrate(self, actions, confidence=0.0, cycle=0, state_key=""):
+        """Elige una sola accion con prioridad al modelo, ajustada por aprendizaje."""
         valid = []
         saved_camera_ts = self.last_camera_ts
         saved_shift_ts = self.last_shift_toggle_ts
@@ -264,13 +264,39 @@ class GameBrain:
         self.last_shift_toggle_ts = saved_shift_ts
 
         if valid:
-            for action, key in valid:
-                if not self._is_bad_repeat(key, float(confidence or 0.0)):
-                    committed=self.validate_action(action, commit=True)
-                    return committed, "modelo"
+            candidates=[]
+            learned_rows={}
+            if state_key:
+                try:
+                    learned_rows={
+                        str(row["action"]): (float(row["value"]), int(row["trials"]))
+                        for row in self.learner.scores(self.profile, state_key, 24)
+                    }
+                except Exception:
+                    learned_rows={}
+
+            usable=[]
+            for idx,(action,key) in enumerate(valid):
+                if self._is_bad_repeat(key, float(confidence or 0.0)):
+                    continue
+
+                value,trials=learned_rows.get(key,(0.0,0))
+                # El aprendizaje pesa mas conforme acumula evidencia, pero nunca
+                # sustituye por completo la percepcion actual del modelo.
+                evidence=min(0.42, 0.10 * (trials ** 0.5)) if trials>0 else 0.0
+                learned_bonus=evidence*value
+                model_bonus=max(0.0, 0.08 - idx*0.04)
+                exploration_bonus=0.10/(1.0+trials**0.5)
+                candidates.append((learned_bonus+model_bonus+exploration_bonus,action,key,trials,value))
+
+            if candidates:
+                candidates.sort(key=lambda x:x[0],reverse=True)
+                _,chosen,key,trials,value=candidates[0]
+                committed=self.validate_action(chosen, commit=True)
+                source="aprendido" if trials>=3 and abs(value)>=0.12 else "modelo"
+                return committed, source
 
             fallback=self._novelty_candidates(cycle)
-            key=self.learner.action_key(fallback)
             return self.validate_action(fallback, commit=True), "diversidad"
 
         fallback=self._novelty_candidates(cycle)
