@@ -109,6 +109,8 @@ class NariApp:
         self.jjs_last_block_ts = -10.0
         self.jjs_last_tactical_ts = -10.0
         self.jjs_last_attack_ts = -10.0
+        self.jjs_last_vlm_ts = 0.0
+        self.jjs_dummy_fallback_action_ts = 0.0
         self.root.bind("<F8>", lambda e: self.emergency_stop())
         self._build_ui()
         self.global_hotkey_running = True
@@ -602,6 +604,8 @@ class NariApp:
         self.jjs_last_block_ts=-10.0
         self.jjs_last_tactical_ts=-10.0
         self.jjs_last_attack_ts=-10.0
+        self.jjs_last_vlm_ts=0.0
+        self.jjs_dummy_fallback_action_ts=0.0
         self.computer.clear_stop()
         try:
             self.screen.set_target_window(self.computer.target_hwnd)
@@ -803,6 +807,27 @@ class NariApp:
                     self.jjs_camera_target_ts=now
 
                 centered=abs(smooth[0]-0.5)<=0.070 and abs(smooth[1]-0.5)<=0.085
+
+                # Respaldo local: si la percepción VLM está atrasada, el Dummy
+                # todavía puede provocar movimiento/ataque sin quedarse congelado.
+                if centered and now-self.jjs_last_vlm_ts>=0.75:
+                    if distance>0.60:
+                        if now-self.jjs_dummy_fallback_action_ts>=0.28:
+                            try:
+                                self.computer.act({"type":"hold","key":"w","seconds":0.16})
+                                self.jjs_dummy_fallback_action_ts=time.monotonic()
+                            except Exception as exc:
+                                self._status("⚠️ Dummy W: "+str(exc)[:90])
+                            continue
+                    elif now-self.jjs_last_attack_ts>=0.24:
+                        try:
+                            self.computer.act({"type":"m1","seconds":0.055})
+                            self.jjs_last_attack_ts=time.monotonic()
+                            self.jjs_dummy_fallback_action_ts=time.monotonic()
+                        except Exception as exc:
+                            self._status("⚠️ Dummy M1: "+str(exc)[:90])
+                        continue
+
                 if not centered and now-self.jjs_camera_last_move_ts>=0.18:
                     ex=smooth[0]-0.5
                     ey=smooth[1]-0.5
@@ -1277,6 +1302,8 @@ class NariApp:
                     goal, imgs, profile=profile,
                     previous_action=previous_label, state_key=state
                 )
+                if profile=="jjs":
+                    self.jjs_last_vlm_ts=time.monotonic()
                 next_vlm_ts=time.monotonic()+1.0/max(
                     1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0)
                 )
