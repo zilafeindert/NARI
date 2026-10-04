@@ -1,8 +1,8 @@
 {
-  "version": "5.5.12",
-  "tag": "v5.5.12",
+  "version": "5.5.13",
+  "tag": "v5.5.13",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-combat-tactics-reward-14"
+  "release_build": "jjs-smooth-camera-15"
 }
