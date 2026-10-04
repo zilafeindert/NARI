@@ -472,11 +472,33 @@ class Computer:
             if t == "m1":
                 self.mouse_lock.acquire()
                 try:
-                    self._mouse_button("left", True)
-                    try:
-                        time.sleep(max(0.025, min(0.16, float(action.get("seconds", 0.055) or 0.055))))
-                    finally:
-                        self._mouse_button("left", False)
+                    # La cámara usa movimiento relativo y desplaza el cursor del
+                    # sistema. Antes de M1 debemos garantizar que el clic esté dentro
+                    # del viewport de Roblox, no en una coordenada que dejó la cámara.
+                    self._center_cursor_in_target()
+                    time.sleep(0.012)
+                    hold_seconds=max(0.045, min(0.16, float(action.get("seconds", 0.085) or 0.085)))
+                    if pyautogui is not None:
+                        try:
+                            pyautogui.mouseDown(button="left")
+                            try:
+                                time.sleep(hold_seconds)
+                            finally:
+                                pyautogui.mouseUp(button="left")
+                        except Exception:
+                            # Fallback directo a SendInput si PyAutoGUI no consigue
+                            # controlar el botón en la ejecución actual.
+                            self._mouse_button("left", True)
+                            try:
+                                time.sleep(hold_seconds)
+                            finally:
+                                self._mouse_button("left", False)
+                    else:
+                        self._mouse_button("left", True)
+                        try:
+                            time.sleep(hold_seconds)
+                        finally:
+                            self._mouse_button("left", False)
                 finally:
                     self.mouse_lock.release()
             elif t == "block":
