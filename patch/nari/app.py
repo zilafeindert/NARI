@@ -93,9 +93,7 @@ class NariApp:
         self.computer.set_host_window(self.root.winfo_id())
         self.game_infer_lock = threading.Lock()
         self.game_target_title = ""
-        self.jjs_dummy_last_seen = 0.0
-        self.jjs_dummy_lost_cycles = 0
-        self.jjs_dummy_center = None
+
         self.jjs_dummy_center_smooth = None
         self.jjs_dummy_stable_hits = 0
         self.jjs_dummy_prev_distance = None
@@ -585,9 +583,7 @@ class NariApp:
                 "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
             )
         self.game_target_title=title
-        self.jjs_dummy_last_seen=0.0
-        self.jjs_dummy_lost_cycles=0
-        self.jjs_dummy_center=None
+
         self.jjs_dummy_center_smooth=None
         self.jjs_dummy_stable_hits=0
         self.jjs_dummy_prev_distance=None
@@ -1264,7 +1260,6 @@ class NariApp:
                         result["aim_alignment_delta"]=float(cached["aim_alignment_delta"])
                 else:
                     marker_stable=False
-                    self.jjs_dummy_lost_cycles+=1
 
                 if marker_stable and result.get("target_is_dummy"):
                     try:
@@ -1367,9 +1362,6 @@ class NariApp:
             goal_state = str(result.get("goal_state", "") or "")
 
             self.agent.decision_record(profile, goal, result, decision)
-
-            if str(action.get("type","")).lower() not in {"camera_turn","camera_drag","camera_key_turn"}:
-                self.jjs_last_camera_command=None
 
             if execution_failed:
                 previous_action = None
