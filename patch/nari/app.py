@@ -760,6 +760,7 @@ class NariApp:
         stable_hits=0
         previous_distance=None
         previous_error=None
+        last_dummy_seen=0.0
 
         while self.game_running and self.jjs_camera_running:
             frame=self.screen.latest_game()
@@ -776,6 +777,7 @@ class NariApp:
 
             target=None
             if marker is not None:
+                last_dummy_seen=now
                 raw=(float(marker["center_x"]),float(marker["center_y"]))
                 if smooth is None:
                     smooth=raw
@@ -847,6 +849,11 @@ class NariApp:
                                 pass
                             continue
             else:
+                # Una pérdida de un solo frame no debe cambiar del Dummy a un humano.
+                if now-last_dummy_seen<=0.35:
+                    time.sleep(0.025)
+                    continue
+
                 # Sin Dummy: usar la última posición humana proporcionada por la visión,
                 # pero solo durante una ventana corta. Después, hacer una búsqueda lenta.
                 with self.jjs_camera_state_lock:
