@@ -112,15 +112,7 @@ class NariApp:
         self.jjs_camera_last_move_ts = 0.0
         self.jjs_camera_search_direction = 1
         self.jjs_camera_search_next_ts = 0.0
-        self.jjs_camera_x_sign = 1
-        self.jjs_camera_y_sign = 1
-        self.jjs_last_camera_command = None
-        self.jjs_last_camera_action_ts = 0.0
-        self.jjs_camera_observe_until = 0.0
-        self.jjs_search_next_ts = 0.0
-        self.jjs_search_direction = 1
         self.jjs_combat_phase = "search"
-        self.jjs_target_kind = "none"
         self.jjs_confirmed_hits = 0
         self.jjs_last_hit_ts = 0.0
         self.jjs_last_dash_ts = -10.0
@@ -610,15 +602,7 @@ class NariApp:
         self.jjs_camera_last_move_ts=0.0
         self.jjs_camera_search_direction=1
         self.jjs_camera_search_next_ts=0.0
-        self.jjs_camera_x_sign=1
-        self.jjs_camera_y_sign=1
-        self.jjs_last_camera_command=None
-        self.jjs_last_camera_action_ts=0.0
-        self.jjs_camera_observe_until=0.0
-        self.jjs_search_next_ts=0.0
-        self.jjs_search_direction=1
         self.jjs_combat_phase="search"
-        self.jjs_target_kind="none"
         self.jjs_confirmed_hits=0
         self.jjs_last_hit_ts=0.0
         self.jjs_last_dash_ts=-10.0
@@ -764,11 +748,12 @@ class NariApp:
         previous_distance=None
         previous_error=None
         last_dummy_seen=0.0
+        no_target_since=None
 
         while self.game_running and self.jjs_camera_running:
             frame=self.screen.latest_game()
             if frame is None:
-                time.sleep(0.03)
+                time.sleep(0.025)
                 continue
 
             now=time.monotonic()
@@ -778,22 +763,30 @@ class NariApp:
             except Exception:
                 marker=None
 
-            target=None
             if marker is not None:
                 last_dummy_seen=now
+                no_target_since=None
                 raw=(float(marker["center_x"]),float(marker["center_y"]))
+
                 if smooth is None:
                     smooth=raw
                     stable_hits=1
                 else:
                     jump=((raw[0]-smooth[0])**2+(raw[1]-smooth[1])**2)**0.5
                     if jump<=0.22:
-                        smooth=(smooth[0]*0.70+raw[0]*0.30,
-                                smooth[1]*0.70+raw[1]*0.30)
+                        smooth=(
+                            smooth[0]*0.70+raw[0]*0.30,
+                            smooth[1]*0.70+raw[1]*0.30,
+                        )
                         stable_hits=min(10,stable_hits+1)
                     else:
-                        smooth=raw
-                        stable_hits=1
+                        # A large jump is a possible false positive; keep the
+                        # previous track and require fresh stable frames.
+                        stable_hits=0
+
+                if stable_hits<2:
+                    time.sleep(0.020)
+                    continue
 
                 marker_size=max(int(marker.get("width",0)),int(marker.get("height",0)))
                 size_ratio=marker_size/max(1,frame.shape[1])
@@ -819,25 +812,78 @@ class NariApp:
                     "distance":distance,
                     "distance_delta":dist_delta,
                     "aim_alignment_delta":aim_delta,
-                    "stable":stable_hits>=2,
+                    "stable":True,
                     "seen_ts":now,
                 }
-
                 with self.jjs_camera_state_lock:
                     self.jjs_camera_target=target
                     self.jjs_camera_target_ts=now
 
                 centered=abs(smooth[0]-0.5)<=0.070 and abs(smooth[1]-0.5)<=0.085
-                if target["stable"] and not centered:
-                    elapsed=now-self.jjs_camera_last_move_ts
-                    if elapsed>=0.20:
-                        ex=smooth[0]-0.5
-                        ey=smooth[1]-0.5
-                        dx=max(-68,min(68,int(ex*390)))
-                        dy=max(-50,min(50,int(ey*290)))
-                        if abs(ex)>0.070 and abs(dx)<8:
+                if not centered and now-self.jjs_camera_last_move_ts>=0.22:
+                    ex=smooth[0]-0.5
+                    ey=smooth[1]-0.5
+
+                    # Proportional controller with a deadband. The correction is
+                    # intentionally large enough to be smooth, not a twitch.
+                    dx=max(-72,min(72,int(ex*420)))
+                    dy=max(-54,min(54,int(ey*315)))
+                    if abs(ex)>0.070 and abs(dx)<9:
+                        dx=9 if ex>0 else -9
+                    if abs(ey)>0.085 and abs(dy)<8:
+                        dy=8 if ey>0 else -8
+
+                    if dx or dy:
+                        try:
+                            self.computer.act({
+                                "type":"camera_turn",
+                                "dx":dx,
+                                "dy":dy,
+                                "seconds":0.16,
+                            })
+                            self.jjs_camera_last_move_ts=time.monotonic()
+                        except Exception as exc:
+                            self._status("⚠️ Cámara JJS: "+str(exc)[:100])
+                        continue
+
+            else:
+                # Do not switch targets or search on a single missed frame.
+                if now-last_dummy_seen<=0.50:
+                    previous_distance=None
+                    previous_error=None
+                    time.sleep(0.025)
+                    continue
+
+                with self.jjs_camera_state_lock:
+                    human_center=self.jjs_human_center_smooth
+                    human_ts=self.jjs_human_center_ts
+                    human_hits=self.jjs_human_stable_hits
+
+                if human_center is not None and now-human_ts<=0.75 and human_hits>=2:
+                    hx,hy=human_center
+                    target={
+                        "kind":"human",
+                        "center_x":hx,
+                        "center_y":hy,
+                        "distance":None,
+                        "distance_delta":None,
+                        "aim_alignment_delta":None,
+                        "stable":True,
+                        "seen_ts":now,
+                    }
+                    with self.jjs_camera_state_lock:
+                        self.jjs_camera_target=target
+                        self.jjs_camera_target_ts=now
+
+                    centered=abs(hx-0.5)<=0.075 and abs(hy-0.5)<=0.090
+                    if not centered and now-self.jjs_camera_last_move_ts>=0.22:
+                        ex=hx-0.5
+                        ey=hy-0.5
+                        dx=max(-62,min(62,int(ex*360)))
+                        dy=max(-46,min(46,int(ey*275)))
+                        if abs(ex)>0.075 and abs(dx)<8:
                             dx=8 if ex>0 else -8
-                        if abs(ey)>0.085 and abs(dy)<7:
+                        if abs(ey)>0.090 and abs(dy)<7:
                             dy=7 if ey>0 else -7
                         if dx or dy:
                             try:
@@ -848,79 +894,33 @@ class NariApp:
                                     "seconds":0.15,
                                 })
                                 self.jjs_camera_last_move_ts=time.monotonic()
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                self._status("⚠️ Cámara JJS: "+str(exc)[:100])
                             continue
-            else:
-                # Una pérdida de un solo frame no debe cambiar del Dummy a un humano.
-                if now-last_dummy_seen<=0.35:
-                    time.sleep(0.025)
-                    continue
-
-                # Sin Dummy: usar la última posición humana proporcionada por la visión,
-                # pero solo durante una ventana corta. Después, hacer una búsqueda lenta.
-                with self.jjs_camera_state_lock:
-                    human_center=self.jjs_human_center_smooth
-                    human_ts=self.jjs_human_center_ts
-
-                if human_center is not None and now-human_ts<=0.75:
-                    hx,hy=human_center
-                    target={
-                        "kind":"human",
-                        "center_x":hx,
-                        "center_y":hy,
-                        "distance":None,
-                        "distance_delta":None,
-                        "aim_alignment_delta":None,
-                        "stable":self.jjs_human_stable_hits>=2,
-                        "seen_ts":now,
-                    }
-                    with self.jjs_camera_state_lock:
-                        self.jjs_camera_target=target
-                        self.jjs_camera_target_ts=now
-
-                    if target["stable"]:
-                        centered=abs(hx-0.5)<=0.075 and abs(hy-0.5)<=0.090
-                        if not centered and now-self.jjs_camera_last_move_ts>=0.20:
-                            ex=hx-0.5
-                            ey=hy-0.5
-                            dx=max(-58,min(58,int(ex*330)))
-                            dy=max(-42,min(42,int(ey*250)))
-                            if abs(ex)>0.075 and abs(dx)<7:
-                                dx=7 if ex>0 else -7
-                            if abs(ey)>0.090 and abs(dy)<6:
-                                dy=6 if ey>0 else -6
-                            if dx or dy:
-                                try:
-                                    self.computer.act({
-                                        "type":"camera_turn",
-                                        "dx":dx,
-                                        "dy":dy,
-                                        "seconds":0.13,
-                                    })
-                                    self.jjs_camera_last_move_ts=time.monotonic()
-                                except Exception:
-                                    pass
-                                continue
                 else:
+                    if no_target_since is None:
+                        no_target_since=now
                     with self.jjs_camera_state_lock:
                         self.jjs_camera_target=None
                         self.jjs_camera_target_ts=0.0
 
-                    if now>=self.jjs_camera_search_next_ts:
+                    # Very slow reacquisition only after a real loss of target.
+                    if now-no_target_since>=1.8 and now>=self.jjs_camera_search_next_ts:
                         self.jjs_camera_search_direction*=-1
-                        self.jjs_camera_search_next_ts=now+1.35
+                        self.jjs_camera_search_next_ts=now+1.9
                         try:
                             self.computer.act({
                                 "type":"camera_turn",
-                                "dx":42*self.jjs_camera_search_direction,
+                                "dx":34*self.jjs_camera_search_direction,
                                 "dy":0,
-                                "seconds":0.13,
+                                "seconds":0.12,
                             })
                             self.jjs_camera_last_move_ts=time.monotonic()
-                        except Exception:
-                            pass
-                        continue
+                        except Exception as exc:
+                            self._status("⚠️ Cámara JJS: "+str(exc)[:100])
+
+                    previous_distance=None
+                    previous_error=None
 
             time.sleep(0.025)
 
@@ -1079,6 +1079,7 @@ class NariApp:
             self._game_loop(profile)
         except Exception as exc:
             self.game_running=False
+            self._stop_jjs_camera_controller()
             try:
                 self.computer.release_all()
             except Exception:
