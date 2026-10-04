@@ -901,6 +901,68 @@ class NariApp:
 
             time.sleep(0.025)
 
+    def _jjs_update_human_target(self, result, now, is_dummy=False):
+        """Actualiza el objetivo humano de forma centralizada antes de cualquier decisión."""
+        if is_dummy:
+            return None, 0
+
+        visible=bool(result.get("target_visible",False))
+        if not visible:
+            with self.jjs_camera_state_lock:
+                self.jjs_human_center_smooth=None
+                self.jjs_human_stable_hits=0
+                self.jjs_human_prev_aim_error=None
+                self.jjs_human_center_ts=0.0
+            return None, 0
+
+        if "target_center_x" not in result or "target_center_y" not in result:
+            with self.jjs_camera_state_lock:
+                self.jjs_human_center_smooth=None
+                self.jjs_human_stable_hits=0
+                self.jjs_human_prev_aim_error=None
+                self.jjs_human_center_ts=0.0
+            return None, 0
+
+        try:
+            cx=max(0.0,min(1.0,float(result.get("target_center_x",0.5))))
+            cy=max(0.0,min(1.0,float(result.get("target_center_y",0.5))))
+        except Exception:
+            return None, 0
+
+        with self.jjs_camera_state_lock:
+            previous_human=self.jjs_human_center_smooth
+            previous_hits=self.jjs_human_stable_hits
+
+        if previous_human is None:
+            smooth_human=(cx,cy)
+            human_hits=1
+        else:
+            jump=((cx-previous_human[0])**2+(cy-previous_human[1])**2)**0.5
+            if jump<=0.22:
+                smooth_human=(
+                    previous_human[0]*0.68 + cx*0.32,
+                    previous_human[1]*0.68 + cy*0.32,
+                )
+                human_hits=min(8,previous_hits+1)
+            else:
+                smooth_human=previous_human
+                human_hits=0
+
+        aim_error=((smooth_human[0]-0.5)**2+(smooth_human[1]-0.5)**2)**0.5
+        with self.jjs_camera_state_lock:
+            if self.jjs_human_prev_aim_error is not None:
+                result["aim_alignment_delta"]=float(
+                    self.jjs_human_prev_aim_error-aim_error
+                )
+            self.jjs_human_prev_aim_error=aim_error
+            self.jjs_human_center_smooth=smooth_human
+            self.jjs_human_stable_hits=human_hits
+            self.jjs_human_center_ts=now
+
+        result["target_center_x"]=smooth_human[0]
+        result["target_center_y"]=smooth_human[1]
+        return smooth_human, human_hits
+
     def _jjs_combat_override(self, result, is_dummy=False):
         """Ejecutivo rapido de combate: decide defensa/escape/rango sin esperar otra capa."""
         if not isinstance(result, dict):
@@ -949,11 +1011,6 @@ class NariApp:
             return {"type":"wait","seconds":0.10}, "combat-stun-wait"
 
         if not visible:
-            with self.jjs_camera_state_lock:
-                self.jjs_human_center_smooth=None
-                self.jjs_human_stable_hits=0
-                self.jjs_human_prev_aim_error=None
-                self.jjs_human_center_ts=0.0
             self.jjs_combat_phase="search"
             return None, "combat-search"
 
@@ -972,63 +1029,26 @@ class NariApp:
             # cuando haya evidencia de que sirve.
             return None, "combat-guard-read"
 
-        # Seguimiento visual suave para jugadores reales.
-        # Suavizamos el centro que entrega el VLM antes de convertirlo en movimiento.
-        if "target_center_x" not in result or "target_center_y" not in result:
-            with self.jjs_camera_state_lock:
-                self.jjs_human_center_smooth=None
-                self.jjs_human_stable_hits=0
-                self.jjs_human_prev_aim_error=None
-                self.jjs_human_center_ts=0.0
+        human_center,human_hits=self._jjs_update_human_target(
+            result, now, is_dummy=is_dummy
+        )
+        if not is_dummy and human_center is None:
             self.jjs_combat_phase="aim-wait"
             return {"type":"wait","seconds":0.08}, "combat-no-center"
 
-        try:
-            cx=max(0.0,min(1.0,num("target_center_x",0.5)))
-            cy=max(0.0,min(1.0,num("target_center_y",0.5)))
-        except Exception:
-            cx,cy=0.5,0.5
-
-        with self.jjs_camera_state_lock:
-            previous_human=self.jjs_human_center_smooth
-            previous_hits=self.jjs_human_stable_hits
-
-        if previous_human is None:
-            smooth_human=(cx,cy)
-            human_hits=1
+        if is_dummy:
+            try:
+                cx=max(0.0,min(1.0,float(result.get("target_center_x",0.5) or 0.5)))
+                cy=max(0.0,min(1.0,float(result.get("target_center_y",0.5) or 0.5)))
+            except Exception:
+                cx=cy=0.5
         else:
-            jump=((cx-previous_human[0])**2+(cy-previous_human[1])**2)**0.5
-            if jump<=0.22:
-                smooth_human=(
-                    previous_human[0]*0.68 + cx*0.32,
-                    previous_human[1]*0.68 + cy*0.32,
-                )
-                human_hits=min(8,previous_hits+1)
-            else:
-                smooth_human=previous_human
-                human_hits=0
-
-        with self.jjs_camera_state_lock:
-            self.jjs_human_center_smooth=smooth_human
-            self.jjs_human_stable_hits=human_hits
-            self.jjs_human_center_ts=now
-
-        aim_center=smooth_human
-        if aim_center is None or self.jjs_human_stable_hits<1:
-            self.jjs_combat_phase="aim-wait"
-            return {"type":"wait","seconds":0.08}, "combat-aim-wait"
-
-        cx,cy=aim_center
-        aim_error=((cx-0.5)**2 + (cy-0.5)**2)**0.5
-        with self.jjs_camera_state_lock:
-            if self.jjs_human_prev_aim_error is not None:
-                result["aim_alignment_delta"]=float(self.jjs_human_prev_aim_error-aim_error)
-            self.jjs_human_prev_aim_error=aim_error
+            cx,cy=human_center
 
         centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
         if not centered:
             self.jjs_combat_phase="aim"
-            # La cámara ya se mueve en el hilo dedicado; durante el ajuste no atacamos.
+            # La camara ya se mueve en el hilo dedicado; durante el ajuste no atacamos.
             return {"type":"wait","seconds":0.07}, "combat-aim"
         if target_stunned:
             self.jjs_combat_phase="punish"
