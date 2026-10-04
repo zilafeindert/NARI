@@ -1,5 +1,6 @@
 from __future__ import annotations
 import ctypes
+import threading
 from ctypes import wintypes
 import subprocess
 import time
@@ -80,7 +81,7 @@ class Computer:
         self.target_hwnd = None
         self.target_title = ""
         self.shift_lock_active = False
-        self.mouse_lock = __import__("threading").RLock()
+        self.mouse_lock = threading.RLock()
         if pyautogui:
             pyautogui.PAUSE = 0.005
             pyautogui.FAILSAFE = True
@@ -147,17 +148,34 @@ class Computer:
             return ""
 
     def find_game(self, profile="generic"):
-        keywords = {
+        windows=self._windows()
+        if profile=="jjs":
+            # Prioriza una ventana cuyo titulo realmente mencione JJS; solo despues
+            # usa cualquier Roblox como respaldo.
+            ranked=sorted(
+                windows,
+                key=lambda item: (
+                    0 if "jujutsu shenanigans" in item[1].lower() else
+                    1 if "roblox" in item[1].lower() else 2
+                )
+            )
+            for hwnd,title in ranked:
+                low=title.lower()
+                if "jujutsu shenanigans" in low or "roblox" in low:
+                    return hwnd,title
+            return None,""
+
+        keywords={
             "roblox":["roblox"],
-            "jjs":["roblox","jujutsu shenanigans"],
             "limbus":["limbus company","limbus"],
             "generic":["roblox","limbus company","limbus"]
-        }.get(profile, [])
-        for hwnd, title in self._windows():
-            low = title.lower()
+        }.get(profile,[])
+
+        for hwnd,title in windows:
+            low=title.lower()
             if not keywords or any(k in low for k in keywords):
-                return hwnd, title
-        return None, ""
+                return hwnd,title
+        return None,""
 
     def find_game_window(self, profile="generic"):
         hwnd, _ = self.find_game(profile)
@@ -494,11 +512,7 @@ class Computer:
             elif t in {"click","double_click","move","drag"}:
                 if pyautogui is None:
                     return "pyautogui no disponible"
-                self.mouse_lock.acquire()
-                try:
-                    sw, sh = pyautogui.size()
-                finally:
-                    self.mouse_lock.release()
+                sw, sh = pyautogui.size()
                 def xy(x, y, normalized=True):
                     if normalized:
                         return (
