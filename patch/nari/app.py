@@ -110,6 +110,14 @@ class NariApp:
         self.jjs_last_tactical_ts = -10.0
         self.jjs_last_attack_ts = -10.0
         self.jjs_last_vlm_ts = 0.0
+        self.jjs_vlm_result = None
+        self.jjs_vlm_result_ts = 0.0
+        self.jjs_vlm_busy = False
+        self.jjs_vlm_worker = None
+        self.jjs_vlm_prev_action = "ninguna"
+        self.jjs_vlm_state = ""
+        self.jjs_last_recovery_action_ts = 0.0
+        self.jjs_recovery_cursor = 0
         self.jjs_dummy_fallback_action_ts = 0.0
         self.jjs_dummy_approach_count = 0
         self.jjs_dummy_attack_mode = False
@@ -607,6 +615,14 @@ class NariApp:
         self.jjs_last_tactical_ts=-10.0
         self.jjs_last_attack_ts=-10.0
         self.jjs_last_vlm_ts=0.0
+        self.jjs_vlm_result=None
+        self.jjs_vlm_result_ts=0.0
+        self.jjs_vlm_busy=False
+        self.jjs_vlm_worker=None
+        self.jjs_vlm_prev_action="ninguna"
+        self.jjs_vlm_state=""
+        self.jjs_last_recovery_action_ts=0.0
+        self.jjs_recovery_cursor=0
         self.jjs_dummy_fallback_action_ts=0.0
         self.jjs_last_dummy_action_ts=0.0
         self.jjs_dummy_approach_count=0
@@ -642,6 +658,13 @@ class NariApp:
         self.game_running=True
         if profile == "jjs":
             self._start_jjs_camera_controller()
+            self.jjs_vlm_worker=threading.Thread(
+                target=self._jjs_vlm_worker_loop,
+                args=(goal,),
+                daemon=True,
+                name="NARI-JJS-vlm",
+            )
+            self.jjs_vlm_worker.start()
 
         threading.Thread(target=self._safe_game_loop,args=(profile,),daemon=True,name="NARI-game-loop").start()
         self.game_status.set(f"ACTIVO • {profile} • foco: {title}")
@@ -963,9 +986,9 @@ class NariApp:
                     self.jjs_dummy_attack_mode=False
 
                     # Very slow reacquisition only after a real loss of target.
-                    if now-no_target_since>=1.8 and now>=self.jjs_camera_search_next_ts:
+                    if now-no_target_since>=0.65 and now>=self.jjs_camera_search_next_ts:
                         self.jjs_camera_search_direction*=-1
-                        self.jjs_camera_search_next_ts=now+1.9
+                        self.jjs_camera_search_next_ts=now+0.72
                         try:
                             self.computer.act({
                                 "type":"camera_turn",
@@ -981,6 +1004,73 @@ class NariApp:
                     previous_error=None
 
             time.sleep(0.025)
+
+    def _jjs_vlm_worker_loop(self, goal):
+        """Percepcion VLM JJS desacoplada del bucle de entradas."""
+        interval=1.0/max(1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0))
+        next_ts=0.0
+        while self.game_running:
+            now=time.monotonic()
+            if now < next_ts:
+                time.sleep(min(0.04,max(0.005,next_ts-now)))
+                continue
+
+            imgs,latest=self.screen.image_bytes(
+                2,
+                max_width=int(self.settings.get("game_analysis_width",640))
+            )
+            if not imgs or latest is None:
+                next_ts=now+0.08
+                continue
+
+            with self.jjs_camera_state_lock:
+                previous_action=str(self.jjs_vlm_prev_action or "ninguna")
+                state_key=str(self.jjs_vlm_state or "")
+
+            self.jjs_vlm_busy=True
+            try:
+                result=self.agent.vision(
+                    goal, imgs, profile="jjs",
+                    previous_action=previous_action,
+                    state_key=state_key,
+                )
+            except Exception as exc:
+                result={
+                    "actions":[],
+                    "reply":"",
+                    "observation":"",
+                    "decision_note":"VLM no disponible",
+                    "confidence":0.0,
+                    "error":str(exc),
+                }
+            finally:
+                self.jjs_vlm_busy=False
+
+            if not isinstance(result,dict):
+                result={"actions":[],"confidence":0.0,"error":"resultado VLM invalido"}
+
+            stamp=time.monotonic()
+            with self.jjs_camera_state_lock:
+                self.jjs_vlm_result=dict(result)
+                self.jjs_vlm_result_ts=stamp
+                self.jjs_last_vlm_ts=stamp
+
+            next_ts=stamp+interval
+
+    def _jjs_recovery_action(self):
+        """Movimiento de recuperacion que impide que un fallo/perdida del VLM congele JJS."""
+        now=time.monotonic()
+        if now-self.jjs_last_recovery_action_ts<0.34:
+            return {"type":"wait","seconds":0.06}, "jjs-recovery-wait"
+
+        self.jjs_last_recovery_action_ts=now
+        cursor=self.jjs_recovery_cursor%5
+        self.jjs_recovery_cursor+=1
+        if cursor in (0,1,2):
+            return {"type":"hold","key":"w","seconds":0.18}, "jjs-recovery-forward"
+        if cursor==3:
+            return {"type":"hold","key":"a","seconds":0.12}, "jjs-recovery-left"
+        return {"type":"hold","key":"d","seconds":0.12}, "jjs-recovery-right"
 
     def _jjs_normalize_human_target(self, result):
         if not isinstance(result,dict):
@@ -1159,6 +1249,14 @@ class NariApp:
             if distance>0.58:
                 return {"type":"hold","key":"w","seconds":0.14}, "combat-punish-close"
             return {"type":"m1","seconds":0.055}, "combat-punish-m1"
+
+        # Para rivales humanos no confiamos en una distancia VLM aproximada:
+        # cuando el rival ya esta centrado, avanzar+M1 mantiene presion y sigue
+        # cerrando distancia aunque la escala de profundidad sea imprecisa.
+        if not is_dummy and now-self.jjs_last_attack_ts>=0.22:
+            self.jjs_combat_phase="engage"
+            self.jjs_last_attack_ts=now
+            return {"type":"advance_m1","seconds":0.11}, "combat-human-advance-m1"
 
         if distance>0.72:
             self.jjs_combat_phase="approach"
@@ -1378,23 +1476,46 @@ class NariApp:
             previous_label = self.agent.game_learner.action_key(previous_action, profile) if isinstance(previous_action, dict) else "ninguna"
 
             now_loop=time.monotonic()
-            if now_loop < next_vlm_ts:
-                time.sleep(min(0.03,max(0.005,next_vlm_ts-now_loop)))
-                continue
+            if profile=="jjs":
+                with self.jjs_camera_state_lock:
+                    latest_result=(
+                        dict(self.jjs_vlm_result)
+                        if isinstance(self.jjs_vlm_result,dict)
+                        else None
+                    )
+                    vlm_age=(
+                        now_loop-float(self.jjs_vlm_result_ts)
+                        if self.jjs_vlm_result_ts>0
+                        else 999.0
+                    )
+                if latest_result is None:
+                    result={
+                        "actions":[],
+                        "target_visible":False,
+                        "confidence":0.0,
+                        "observation":"buscando objetivo",
+                        "decision_note":"VLM inicializando",
+                        "error":"vlm-pending",
+                    }
+                else:
+                    result=latest_result
+                    result["_vlm_age"]=vlm_age
+            else:
+                if now_loop < next_vlm_ts:
+                    time.sleep(min(0.03,max(0.005,next_vlm_ts-now_loop)))
+                    continue
 
-            try:
-                result = self.agent.vision(
-                    goal, imgs, profile=profile,
-                    previous_action=previous_label, state_key=state
-                )
-                if profile=="jjs":
-                    self.jjs_last_vlm_ts=time.monotonic()
-                next_vlm_ts=time.monotonic()+1.0/max(
-                    1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0)
-                )
-            except Exception as exc:
-                result = {"actions": [], "reply": "", "error": str(exc), "confidence": 0.0, "observation": ""}
-                next_vlm_ts=time.monotonic()+0.40
+                try:
+                    result = self.agent.vision(
+                        goal, imgs, profile=profile,
+                        previous_action=previous_label, state_key=state
+                    )
+                    next_vlm_ts=time.monotonic()+1.0/max(
+                        1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0)
+                    )
+                except Exception as exc:
+                    result = {"actions": [], "reply": "", "error": str(exc), "confidence": 0.0, "observation": ""}
+                    next_vlm_ts=time.monotonic()+0.40
 
             marker_stable=False
             local_dummy=False
@@ -1563,9 +1684,11 @@ class NariApp:
                 action,source=self.agent.game_choose_action(
                     candidates,confidence,self.game_cycle,frame,state_key=learning_state
                 )
-            elif profile == "jjs" and result.get("error"):
-                action={"type":"wait","seconds":0.10}
-                source="perception-error"
+            elif profile == "jjs" and (
+                result.get("error")
+                or not bool(result.get("target_visible",False))
+            ):
+                action,source=self._jjs_recovery_action()
             else:
                 action,source=self.agent.game_choose_action(
                     candidates,confidence,self.game_cycle,frame,state_key=learning_state
@@ -1606,6 +1729,11 @@ class NariApp:
                 if forced_source == "target-attack" and str(action.get("type","")).lower()=="m1":
                     self.jjs_last_attack_ts=_forced_now
 
+            if profile=="jjs":
+                with self.jjs_camera_state_lock:
+                    self.jjs_vlm_prev_action=self.agent.game_learner.action_key(action,profile)
+                    self.jjs_vlm_state=learning_state
+
             decision = self.agent.game_learner.action_key(action, profile)
             decision_note = str(result.get("decision_note", "") or "")
             observation = str(result.get("observation", "") or "")
@@ -1644,9 +1772,21 @@ class NariApp:
                     _target_cy = float(_dbg_target.get("center_y",0.50))
                     if _dbg_target.get("distance") is not None:
                         _target_dist = float(_dbg_target.get("distance"))
+                with self.jjs_camera_state_lock:
+                    _vlm_age = (
+                        time.monotonic()-self.jjs_vlm_result_ts
+                        if self.jjs_vlm_result_ts>0 else 999.0
+                    )
+                    _vlm_busy=bool(self.jjs_vlm_busy)
+                    _raw_vlm=self.jjs_vlm_result.copy() if isinstance(self.jjs_vlm_result,dict) else {}
+                if _target_kind=="none" and bool(_raw_vlm.get("target_visible",False)):
+                    _target_kind="vlm-human"
+                    _target_cx=float(_raw_vlm.get("target_center_x",0.50) or 0.50)
+                    _target_cy=float(_raw_vlm.get("target_center_y",0.50) or 0.50)
                 target_debug = (
                     f" • target={_target_kind} "
                     f"({(_target_cx):.2f},{(_target_cy):.2f}) d={_target_dist:.2f}"
+                    f" • vlm={_vlm_age:.1f}s{'*' if _vlm_busy else ''}"
                 )
             else:
                 target_debug = ""
