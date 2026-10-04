@@ -1,8 +1,8 @@
 {
-  "version": "5.5.25",
-  "tag": "v5.5.25",
+  "version": "5.5.26",
+  "tag": "v5.5.26",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-enemy-acquisition-27"
+  "release_build": "jjs-control-decoupling-28"
 }
