@@ -1383,7 +1383,9 @@ class NariApp:
                 action={"type":"wait","seconds":0.10}
                 source="perception-error"
             else:
-                action,source=self.agent.game_choose_action(candidates,confidence,self.game_cycle,frame)
+                action,source=self.agent.game_choose_action(
+                    candidates,confidence,self.game_cycle,frame,state_key=learning_state
+                )
     
             try:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
