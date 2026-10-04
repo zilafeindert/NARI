@@ -1,0 +1,10 @@
+NARI 5.5.27
+
+JJS target acquisition rewrite.
+
+- Added a dedicated compact VLM target scanner instead of using the full gameplay JSON for enemy acquisition.
+- The scanner explicitly distinguishes the local avatar, enemy avatars, and the green Dummy marker.
+- JJS combat no longer depends on VLM-generated action lists for basic engagement.
+- Centered human targets now use advance_m1 so movement and M1 happen together.
+- VLM perception remains asynchronous, while local recovery keeps movement active during slow or failed vision.
+- Added target persistence and faster camera reacquisition to avoid freezing after a missed frame.
