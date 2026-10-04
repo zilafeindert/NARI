@@ -1,0 +1,19 @@
+NARI 5.5.15
+
+Final stability and combat audit.
+
+- Dedicated continuous JJS camera controller separated from VLM inference.
+- Smooth eased relative camera segments, one-time cursor preparation and serialized mouse ownership.
+- Removed conflicting camera action paths and random JJS camera fallbacks.
+- Stable temporal Dummy marker tracking with stronger false-positive rejection.
+- Human target center smoothing and bounded follow corrections.
+- JJS combat phases for approach, aim, engage, defend, escape, punish and guard reading.
+- Confirmed-hit combo followups can now take priority over forced M1.
+- Stronger hierarchical rewards for damage, confirmed hits, abilities, blocks, KO, useful movement, aim, whiffs, cooldown misuse, guard spam, damage taken and player death.
+- Local Dummy distance and aim improvements are included before the reward is calculated.
+- Learned action values now influence decision selection using contextual combat state.
+- JJS action key migration is profile-aware so other Roblox profiles are unaffected.
+- Failed input execution is strongly penalized and not fed back as a successful transition.
+- Fixed action-dispatch fallthrough, malformed action parsing, duplicate cooldown consumption and stale game state.
+- Hardened screen capture, voice lifecycle, SQLite concurrency, updater extraction/rollback/restart flow and game-loop exception cleanup.
+- Increased local game capture to 30 FPS / 768px while keeping VLM analysis at 640px.
