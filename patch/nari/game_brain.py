@@ -27,6 +27,7 @@ class GameBrain:
         self.last_shift_toggle_ts = -10.0
         self.last_action_ts = 0.0
         self.exploration_cursor = 0
+        self.exploration_rate = 0.06
 
     def history_text(self, limit: int = 8) -> str:
         rows = list(self.recent)[-max(1, int(limit)):]
@@ -275,7 +276,6 @@ class GameBrain:
                 except Exception:
                     learned_rows={}
 
-            usable=[]
             for idx,(action,key) in enumerate(valid):
                 if self._is_bad_repeat(key, float(confidence or 0.0)):
                     continue
@@ -286,7 +286,7 @@ class GameBrain:
                 evidence=min(0.42, 0.10 * (trials ** 0.5)) if trials>0 else 0.0
                 learned_bonus=evidence*value
                 model_bonus=max(0.0, 0.08 - idx*0.04)
-                exploration_bonus=0.10/(1.0+trials**0.5)
+                exploration_bonus=self.exploration_rate/(1.0+trials**0.5)
                 candidates.append((learned_bonus+model_bonus+exploration_bonus,action,key,trials,value))
 
             if candidates:
