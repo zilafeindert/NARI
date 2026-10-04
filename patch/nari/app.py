@@ -610,7 +610,8 @@ class NariApp:
             self.screen.set_target_window(self.computer.target_hwnd)
         except Exception:
             pass
-        self.computer.focus_title(title)
+        if not self.computer.focus_title(title):
+            self._status("⚠️ La ventana del juego perdió el foco; intentando continuar.")
         self.computer.minimize_host()
         self.game_running=True
         self.game_cycle=0
@@ -1490,7 +1491,7 @@ class NariApp:
                 'if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait_nari)\r\n'
                 update_cmd + "\r\n"
                 'if errorlevel 1 (echo Error actualizando NARI. & pause & exit /b 1)\r\n'
-                "start "" " + restart_cmd + "\r\n"
+                'start "" ' + restart_cmd + "\r\n"
                 'del "%~f0"\r\n',
                 encoding="utf-8",
                 newline="",
