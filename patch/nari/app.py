@@ -1625,16 +1625,19 @@ class NariApp:
             update_cmd=subprocess.list2cmdline([python,"-c",update_code])
 
             launcher=ROOT/"NARI_ACTUALIZAR_Y_REINICIAR.bat"
-            launcher.write_text(
-                "@echo off\r\n"
-                "cd /d " + subprocess.list2cmdline([str(ROOT)]) + "\r\n"
-                ":wait_nari\r\n"
-                f'tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL\r\n'
-                'if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait_nari)\r\n'
-                update_cmd + "\r\n"
-                'if errorlevel 1 (echo Error actualizando NARI. & pause & exit /b 1)\r\n'
-                'start "" ' + restart_cmd + "\r\n"
+            launcher_text="".join([
+                "@echo off\r\n",
+                "cd /d " + subprocess.list2cmdline([str(ROOT)]) + "\r\n",
+                ":wait_nari\r\n",
+                f'tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL\r\n',
+                'if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait_nari)\r\n',
+                update_cmd + "\r\n",
+                'if errorlevel 1 (echo Error actualizando NARI. & pause & exit /b 1)\r\n',
+                'start "" ' + restart_cmd + "\r\n",
                 'del "%~f0"\r\n',
+            ])
+            launcher.write_text(
+                launcher_text,
                 encoding="utf-8",
                 newline="",
             )
