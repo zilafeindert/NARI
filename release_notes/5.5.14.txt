@@ -1,0 +1,23 @@
+NARI 5.5.14
+
+Full stability and game-control audit.
+
+- Separated the JJS camera controller from the VLM inference loop.
+- Local camera tracking now runs continuously from the capture stream.
+- Camera input uses one serialized mouse owner, one-time cursor preparation and eased relative motion.
+- Removed duplicated and conflicting camera decision paths.
+- Added stable temporal Dummy tracking and safer target reacquisition.
+- Human target tracking now uses smoothed visual centers with bounded corrections.
+- Fixed action-dispatch fallthrough that could execute M1/block/double-W and still report an unsupported action.
+- Fixed action validation consuming camera/shift-lock cooldowns while merely evaluating candidates.
+- Made JJS action learning profile-aware so Roblox generic Q/F/R/G actions are not renamed as JJS skills.
+- Migrated legacy JJS policy/action keys without altering other profiles.
+- Learned action values now influence candidate selection instead of only being stored.
+- Expanded combat state context used by persistent learning.
+- Strengthened JJS reward shaping for damage, confirmed hits, abilities, blocks, KO, approach, aim, whiffs, cooldown misuse, guard spam, damage taken and death.
+- Local Dummy distance and aim deltas now arrive before reward calculation.
+- Execution failures receive an explicit strong negative reward and are not treated as successful transitions.
+- Hardened malformed VLM numeric/boolean action fields.
+- Hardened screen capture, voice listener lifecycle, SQLite concurrency, ZIP extraction and updater rollback/restart handling.
+- Added higher-resolution local game capture and 30 FPS capture migration while keeping VLM analysis at 640px.
+- Improved JJS Roblox-window selection and prevented one-frame target switches.
