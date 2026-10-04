@@ -1495,18 +1495,8 @@ class NariApp:
                         and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.18
                         and not bool(result.get("cooldown_active",False))
                     ):
-                        not bool(result.get("cooldown_active",False))
-                        and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.14
-                    ):
-                        has_combo_followup=any(
-                            str(candidate.get("type","")).lower()=="press"
-                            and str(candidate.get("key","")).lower() in {"1","2","3","4","r"}
-                            for candidate in candidates
-                        )
-                        if self.jjs_confirmed_hits<1 or not has_combo_followup:
-                            self.jjs_dummy_attack_mode=True
-                            forced_action={"type":"m1","seconds":0.055}
-                            forced_source="target-attack"
+                        forced_action={"type":"m1","seconds":0.055}
+                        forced_source="target-attack"
 
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
