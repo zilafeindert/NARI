@@ -77,12 +77,7 @@ class NariApp:
         self.busy = False
         self.game_running = False
         self.game_cycle = 0
-        self.last_game_frame_ts = 0.0
         self.last_game_action_ts = 0.0
-        self.last_learning_frame = None
-        self.last_learning_state = ""
-        self.last_learning_action = None
-        self.last_learning_action_label = ""
         self.learning_enabled = bool(self.settings.get("learning_enabled", True))
         self.developer = tk.BooleanVar(value=False)
         self.free_var = tk.BooleanVar(value=self.settings.get("talk_when_idle", False))
@@ -117,9 +112,6 @@ class NariApp:
         self.jjs_last_block_ts = -10.0
         self.jjs_last_tactical_ts = -10.0
         self.jjs_last_attack_ts = -10.0
-        self.game_recommended_actions = []
-        self.game_recommendation_ts = 0.0
-        self.game_action_lock = threading.Lock()
         self.root.bind("<F8>", lambda e: self.emergency_stop())
         self._build_ui()
         self.global_hotkey_running = True
@@ -617,11 +609,6 @@ class NariApp:
                 self._status("⚠️ Preparación de cámara: "+str(exc)[:100])
         self.computer.minimize_host()
         self.game_cycle=0
-        self.last_game_frame_ts=0.0
-        self.last_learning_frame=None
-        self.last_learning_state=""
-        self.last_learning_action=None
-        self.last_learning_action_label=""
         self.learning_enabled=bool(self.settings.get("learning_enabled", True))
 
         try:
@@ -637,9 +624,7 @@ class NariApp:
                 self._status("⚠ Aprendizaje: "+str(exc)[:90])
 
         with self.game_action_lock:
-            self.game_recommended_actions = []
-            self.game_recommendation_ts = 0.0
-
+        
         self.game_running=True
         if profile == "jjs":
             self._start_jjs_camera_controller()
@@ -714,10 +699,6 @@ class NariApp:
         with self.game_action_lock:
             self.game_recommended_actions=[]
             self.game_recommendation_ts=0.0
-        self.last_learning_frame=None
-        self.last_learning_state=""
-        self.last_learning_action=None
-        self.last_learning_action_label=""
         self.game_status.set("Detenido")
         self.game_learning_status.set("Aprendizaje: sesión guardada")
         self._status("🎮 Juego detenido")
@@ -1149,7 +1130,6 @@ class NariApp:
         previous_note = ""
         previous_goal_state = ""
         last_decision_ui = 0.0
-        target_lost_cycles = 0
         next_vlm_ts = 0.0
 
         while self.game_running:
