@@ -240,8 +240,8 @@ class GameBrain:
                 action = pool[(idx + offset) % len(pool)]
                 key = self.learner.action_key(action)
                 if not self._is_bad_repeat(key, 0.0):
-                    return self.validate_action(action)
-            return self.validate_action(pool[idx % len(pool)])
+                    return self.validate_action(action, commit=False)
+            return self.validate_action(pool[idx % len(pool)], commit=False)
 
         return {"type": "wait", "seconds": 0.10}
 
