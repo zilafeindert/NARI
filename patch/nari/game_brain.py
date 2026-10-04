@@ -95,6 +95,8 @@ class GameBrain:
 
         if kind == "m1":
             return {"type": "m1", "seconds": max(0.02, min(0.09, number(out.get("seconds", 0.045), 0.045)))}
+        if kind == "advance_m1":
+            return {"type": "advance_m1", "seconds": max(0.075, min(0.18, number(out.get("seconds", 0.11), 0.11)))}
 
         if kind == "block":
             return {"type": "block", "seconds": max(0.08, min(0.60, number(out.get("seconds", 0.22), 0.22)))}
