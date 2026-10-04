@@ -364,29 +364,28 @@ class Agent:
             "target_name debe ser enemy y target_center_x/y deben indicar el centro aproximado del torso en 0..1. "
             "El Dummy solo es target_is_dummy=true cuando el cuadrado verde sobre su cabeza sea visible. "
             "Si no hay ningun objetivo identificable, target_visible=false. "
-            'Usa exactamente este esquema: {"target_visible":false,"target_is_dummy":false,'
-            '"target_name":"","target_center_x":0.5,"target_center_y":0.5,"target_distance":0.75,'
-            '"confidence":0.0,"opponent_attacking":false,"target_stunned":false,"target_blocking":false,'
-            '"player_stunned":false,"player_ragdolled":false,"player_dead":false}.'
+            'Usa SOLO este JSON minimo: {"target_visible":false,"target_is_dummy":false,'
+            '"target_center_x":0.5,"target_center_y":0.5,"confidence":0.0}.'
         )
         msg={
             "role":"user",
             "content":(
-                "Adquiere UN solo objetivo de combate. Prioridad: enemigo humano > Dummy. "
-                "Compara las dos imagenes mas recientes cuando existan para separar personaje vivo "
-                "de decoracion o imagen estatica."
+                "Adquiere UN solo objetivo. Primero busca un enemigo humano visible distinto del avatar propio. "
+                "Si no existe enemigo humano pero ves el Dummy verde, marca target_is_dummy=true. "
+                "Si hay enemigo, target_visible=true y marca el centro de su torso. "
+                "No describas la escena y no generes acciones."
             ),
-            "images":images_b64[-2:],
+            "images":images_b64[-1:],
         }
         try:
             raw=self._call(
                 [{"role":"system","content":system},msg],
-                model, 2.4, 56, 768, think=False
+                model, 2.6, 96, 896, think=False
             )
         except Exception:
             raw=self._call(
                 [{"role":"system","content":system},msg],
-                model, 1.8, 40, 640, think=False
+                model, 2.0, 80, 768, think=False
             )
         result=self._normalize(self._parse(raw))
         result=self._normalize_jjs_target(result)
