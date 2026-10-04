@@ -414,6 +414,11 @@ class Computer:
         self.shift_lock_active = not self.shift_lock_active
         return self.shift_lock_active
 
+    def prepare_camera(self):
+        """Enfoca el juego y centra el puntero una sola vez antes de una sesion de camara."""
+        self.keep_target_focused()
+        return self._center_cursor_in_target()
+
     def camera_turn(self, dx, dy=0, seconds=0.06):
         """Gira la cámara con RMB, incluso si Shift Lock esta activo."""
         self.camera_drag(dx, dy, seconds)
@@ -422,8 +427,6 @@ class Computer:
         self.mouse_lock.acquire()
         try:
             self.keep_target_focused()
-            if not self._cursor_inside_target():
-                self._center_cursor_in_target()
 
             total=max(0.080, min(0.180, float(seconds)))
             steps=max(10, min(20, int(round(total*105))))
