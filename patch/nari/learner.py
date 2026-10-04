@@ -130,6 +130,7 @@ class GameLearner:
             """
         )
         self.db.commit()
+        self._migrate_action_keys()
         self.session_id = None
         self.profile = ""
         self.total_reward = 0.0
@@ -137,6 +138,54 @@ class GameLearner:
         self._last_action = None
         self._last_state = None
         self._last_action_ts = 0.0
+
+    def _migrate_action_keys(self):
+        """Fusiona nombres antiguos de acciones para no perder aprendizaje historico."""
+        aliases={
+            "press_q":"dash_q",
+            "press_f":"block_f",
+            "press_r":"special_r",
+            "press_g":"awaken_g",
+            "press_space":"jump",
+        }
+        for old_key,new_key in aliases.items():
+            rows=self.db.execute(
+                "SELECT profile,state,trials,value,updated FROM game_policy WHERE action=?",
+                (old_key,),
+            ).fetchall()
+            for row in rows:
+                existing=self.db.execute(
+                    "SELECT trials,value,updated FROM game_policy WHERE profile=? AND state=? AND action=?",
+                    (row["profile"],row["state"],new_key),
+                ).fetchone()
+                if existing:
+                    old_trials=max(0,int(row["trials"] or 0))
+                    new_trials=max(0,int(existing["trials"] or 0))
+                    total=max(1,old_trials+new_trials)
+                    merged_value=(
+                        float(existing["value"] or 0.0)*new_trials
+                        + float(row["value"] or 0.0)*old_trials
+                    )/total
+                    merged_updated=max(float(existing["updated"] or 0.0),float(row["updated"] or 0.0))
+                    self.db.execute(
+                        "UPDATE game_policy SET trials=?,value=?,updated=? WHERE profile=? AND state=? AND action=?",
+                        (total,merged_value,merged_updated,row["profile"],row["state"],new_key),
+                    )
+                    self.db.execute(
+                        "DELETE FROM game_policy WHERE profile=? AND state=? AND action=?",
+                        (row["profile"],row["state"],old_key),
+                    )
+                else:
+                    self.db.execute(
+                        "UPDATE game_policy SET action=? WHERE profile=? AND state=? AND action=?",
+                        (new_key,row["profile"],row["state"],old_key),
+                    )
+
+            self.db.execute(
+                "UPDATE game_experiences SET action=? WHERE action=?",
+                (new_key,old_key),
+            )
+        self.db.commit()
 
     def start_session(self, profile: str) -> int:
         self.profile = str(profile or "generic")
