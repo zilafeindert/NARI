@@ -412,7 +412,7 @@ class GameLearner:
 
         # Atribuir cada señal espacial a la accion que realmente puede causarla.
         is_camera=key in {"look_left","look_right","look_up","look_down","camera_turn","camera_drag"}
-        is_movement=key.startswith("hold_") or key=="dash_q"
+        is_movement=key.startswith("hold_") or key in {"dash_q","advance_m1"}
 
         if is_camera:
             if align_delta>0.02:
@@ -434,7 +434,7 @@ class GameLearner:
             score+=min(1.0,abs(enemy_hp_delta)*1.20)
         if hit:
             score+=0.50
-        if hit and key=="m1":
+        if hit and key in {"m1","advance_m1"}:
             score+=0.12
         if ability_confirmed:
             score+=0.25
@@ -533,6 +533,9 @@ class GameLearner:
         if kind == "block":
             return "block_f" if profile == "jjs" else "block"
 
+        if kind == "advance_m1":
+            return "advance_m1"
+
         if kind == "double_tap_w":
             return "double_tap_w"
 
@@ -558,6 +561,8 @@ class GameLearner:
         key = str(key or "wait")
         if key == "m1":
             return {"type": "m1", "seconds": 0.055}
+        if key == "advance_m1":
+            return {"type": "advance_m1", "seconds": 0.11}
         if key == "block_f":
             return {"type": "block", "seconds": 0.35}
         if key == "dash_q":
