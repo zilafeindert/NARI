@@ -80,6 +80,7 @@ class Computer:
         self.target_hwnd = None
         self.target_title = ""
         self.shift_lock_active = False
+        self.mouse_lock = __import__("threading").RLock()
         if pyautogui:
             pyautogui.PAUSE = 0.005
             pyautogui.FAILSAFE = True
@@ -399,45 +400,42 @@ class Computer:
         self.camera_drag(dx, dy, seconds)
 
     def camera_drag(self, dx, dy=0, seconds=0.08):
-        self.keep_target_focused()
-        # Recentrar solo si el puntero realmente esta fuera del viewport.
-        if not self._cursor_inside_target():
-            self._center_cursor_in_target()
-
-        total=max(0.080, min(0.180, float(seconds)))
-        # Una trayectoria de 8-14 pasos con easing evita tanto saltos como
-        # el aspecto robotico de pequeños movimientos independientes.
-        steps=max(8, min(14, int(round(total*78))))
-        dx=float(dx)
-        dy=float(dy)
-
-        self._mouse_button("right", True)
+        self.mouse_lock.acquire()
         try:
-            time.sleep(0.025)
+            self.keep_target_focused()
+            if not self._cursor_inside_target():
+                self._center_cursor_in_target()
 
-            last_x=0.0
-            last_y=0.0
-            for i in range(1,steps+1):
-                if self.stop_event:
-                    break
+            total=max(0.080, min(0.180, float(seconds)))
+            steps=max(10, min(20, int(round(total*105))))
+            dx=float(dx)
+            dy=float(dy)
 
-                t=i/float(steps)
-                # Smoothstep: empieza y termina suavemente.
-                eased=t*t*(3.0-2.0*t)
-                target_x=dx*eased
-                target_y=dy*eased
-
-                mx=int(round(target_x-last_x))
-                my=int(round(target_y-last_y))
-                last_x=target_x
-                last_y=target_y
-
-                if mx or my:
-                    self._mouse_move_rel(mx,my)
-                time.sleep(total/steps)
+            self._mouse_button("right", True)
+            try:
+                time.sleep(0.025)
+                last_x=0.0
+                last_y=0.0
+                for i in range(1,steps+1):
+                    if self.stop_event:
+                        break
+                    t=i/float(steps)
+                    # Smoothstep: continuidad de velocidad sin tirones al inicio/final.
+                    eased=t*t*(3.0-2.0*t)
+                    target_x=dx*eased
+                    target_y=dy*eased
+                    mx=int(round(target_x-last_x))
+                    my=int(round(target_y-last_y))
+                    last_x=target_x
+                    last_y=target_y
+                    if mx or my:
+                        self._mouse_move_rel(mx,my)
+                    time.sleep(total/steps)
+            finally:
+                self._mouse_button("right", False)
+                time.sleep(0.006)
         finally:
-            self._mouse_button("right", False)
-            time.sleep(0.006)
+            self.mouse_lock.release()
 
     def act(self, action):
         if self.stop_event:
@@ -450,11 +448,15 @@ class Computer:
 
         try:
             if t == "m1":
-                self._mouse_button("left", True)
+                self.mouse_lock.acquire()
                 try:
-                    time.sleep(max(0.025, min(0.16, float(action.get("seconds", 0.055) or 0.055))))
+                    self._mouse_button("left", True)
+                    try:
+                        time.sleep(max(0.025, min(0.16, float(action.get("seconds", 0.055) or 0.055))))
+                    finally:
+                        self._mouse_button("left", False)
                 finally:
-                    self._mouse_button("left", False)
+                    self.mouse_lock.release()
             elif t == "block":
                 key = "f"
                 self._key_down(key)
@@ -491,7 +493,11 @@ class Computer:
             elif t in {"click","double_click","move","drag"}:
                 if pyautogui is None:
                     return "pyautogui no disponible"
-                sw, sh = pyautogui.size()
+                self.mouse_lock.acquire()
+                try:
+                    sw, sh = pyautogui.size()
+                finally:
+                    self.mouse_lock.release()
                 def xy(x, y, normalized=True):
                     if normalized:
                         return (
@@ -500,16 +506,20 @@ class Computer:
                         )
                     return int(x), int(y)
                 x,y=xy(action.get("x",500),action.get("y",500),bool(action.get("normalized",True)))
-                if t=="click":
-                    pyautogui.click(x,y,button=str(action.get("button","left")))
-                elif t=="double_click":
-                    pyautogui.doubleClick(x,y,interval=0.04)
-                elif t=="move":
-                    pyautogui.moveTo(x,y,duration=0)
-                else:
-                    x2,y2=xy(action.get("x2",x),action.get("y2",y),bool(action.get("normalized",True)))
-                    pyautogui.moveTo(x,y,duration=0)
-                    pyautogui.dragTo(x2,y2,duration=min(1.2,max(0.01,float(action.get("duration",0.15)))))
+                self.mouse_lock.acquire()
+                try:
+                    if t=="click":
+                        pyautogui.click(x,y,button=str(action.get("button","left")))
+                    elif t=="double_click":
+                        pyautogui.doubleClick(x,y,interval=0.04)
+                    elif t=="move":
+                        pyautogui.moveTo(x,y,duration=0)
+                    else:
+                        x2,y2=xy(action.get("x2",x),action.get("y2",y),bool(action.get("normalized",True)))
+                        pyautogui.moveTo(x,y,duration=0)
+                        pyautogui.dragTo(x2,y2,duration=min(1.2,max(0.01,float(action.get("duration",0.15)))))
+                finally:
+                    self.mouse_lock.release()
             elif t == "type":
                 text = str(action.get("text",""))
                 if pyautogui:
