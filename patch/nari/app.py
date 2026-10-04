@@ -1191,7 +1191,7 @@ class NariApp:
                 time.sleep(0.03)
                 continue
 
-            previous_label = self.agent.game_learner.action_key(previous_action) if isinstance(previous_action, dict) else "ninguna"
+            previous_label = self.agent.game_learner.action_key(previous_action, profile) if isinstance(previous_action, dict) else "ninguna"
 
             now_loop=time.monotonic()
             if now_loop < next_vlm_ts:
@@ -1217,7 +1217,7 @@ class NariApp:
 
             # Recompensa estricta para la accion anterior.
             if previous_action is not None:
-                previous_label = self.agent.game_learner.action_key(previous_action)
+                previous_label = self.agent.game_learner.action_key(previous_action, profile)
                 recent_keys = self.agent.game_brain.recent_keys(4)
                 repeat_count = 0
                 for item in reversed(recent_keys):
@@ -1414,7 +1414,7 @@ class NariApp:
             ):
                 self.jjs_last_attack_ts=time.monotonic()
 
-            decision = self.agent.game_learner.action_key(action)
+            decision = self.agent.game_learner.action_key(action, profile)
             decision_note = str(result.get("decision_note", "") or "")
             observation = str(result.get("observation", "") or "")
             goal_state = str(result.get("goal_state", "") or "")
