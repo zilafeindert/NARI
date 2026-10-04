@@ -1,8 +1,8 @@
 {
-  "version": "5.5.14",
-  "tag": "v5.5.14",
+  "version": "5.5.15",
+  "tag": "v5.5.15",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "full-stability-audit-16"
+  "release_build": "complete-stability-combat-audit-17"
 }
