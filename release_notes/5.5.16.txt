@@ -1,0 +1,31 @@
+NARI 5.5.16
+
+Full audit follow-up.
+
+Camera and targeting:
+- JJS camera tracking is isolated from VLM inference and runs continuously from the local capture stream.
+- Camera corrections use one serialized mouse owner, one-time cursor preparation and eased relative mouse motion.
+- Removed competing VLM/local camera paths and stale camera state.
+- Dummy detection is temporally associated and rejects weak/abrupt false positives.
+- Human target centers are smoothed before use and remain synchronized with the camera thread.
+- Target reacquisition is deliberately slow and does not switch away from a valid Dummy after one missed frame.
+
+Combat:
+- Added explicit JJS combat phases for approach, aim, engage, defend, escape, punish and guard reading.
+- Confirmed-hit combo followups can override the base M1 attack when a valid skill candidate exists.
+- Reward shaping strongly differentiates damage, hits, blocks, KO, movement/aim progress, whiffs, cooldown misuse, guard spam, damage taken, death and execution failures.
+- Objective local Dummy distance and aim deltas are injected before reward calculation.
+- Learned values influence action selection using contextual combat state.
+- Negative rewards update the JJS policy faster than positive rewards.
+- JJS action identifiers are profile-aware and legacy JJS identifiers are migrated without altering generic Roblox semantics.
+
+Reliability:
+- Fixed action-dispatch fallthrough in Computer.act.
+- Game action validation is transactional so candidate evaluation does not consume cooldowns.
+- Malformed VLM numeric/boolean fields are sanitized.
+- Stopped/unsupported actions cannot be learned as successful executions.
+- Game-loop exceptions release controls and surface an error instead of dying silently.
+- Screen capture, voice listener, TTS, SQLite memory/decision stores and updater lifecycle are hardened.
+- Updater ZIP extraction has path validation and rollback support.
+- The updater creates its restart launcher dynamically and preserves data, voices, models, .venv and .env.
+- Capture defaults are tuned for 30 FPS / 768px local tracking with 640px VLM analysis.
