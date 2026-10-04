@@ -99,6 +99,12 @@ class Computer:
                 self._key_up(key)
             except Exception:
                 pass
+        if IS_WINDOWS:
+            for button in ("left","right"):
+                try:
+                    self._mouse_button(button, False)
+                except Exception:
+                    pass
 
     def clear_target(self):
         self.target_hwnd = None
@@ -462,7 +468,7 @@ class Computer:
                 time.sleep(0.07)
                 self._key_down("w")
                 self._key_up("w")
-            if t == "press":
+            elif t == "press":
                 key = str(action.get("key", ""))
                 self._key_down(key)
                 self._key_up(key)
