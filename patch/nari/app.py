@@ -99,6 +99,9 @@ class NariApp:
         self.jjs_camera_last_move_ts = 0.0
         self.jjs_camera_search_direction = 1
         self.jjs_camera_search_next_ts = 0.0
+        self.jjs_vlm_dummy_center = None
+        self.jjs_vlm_dummy_ts = 0.0
+        self.jjs_vlm_dummy_hits = 0
         self.jjs_combat_phase = "search"
         self.jjs_confirmed_hits = 0
         self.jjs_last_hit_ts = 0.0
@@ -589,6 +592,9 @@ class NariApp:
         self.jjs_camera_last_move_ts=0.0
         self.jjs_camera_search_direction=1
         self.jjs_camera_search_next_ts=0.0
+        self.jjs_vlm_dummy_center=None
+        self.jjs_vlm_dummy_ts=0.0
+        self.jjs_vlm_dummy_hits=0
         self.jjs_combat_phase="search"
         self.jjs_confirmed_hits=0
         self.jjs_last_hit_ts=0.0
@@ -1082,6 +1088,79 @@ class NariApp:
         self.jjs_combat_phase="neutral"
         return None, "combat-neutral"
 
+    def _jjs_vlm_dummy_fallback(self, result):
+        """Usa la deteccion del VLM como respaldo cuando el marcador local no aparece."""
+        if not isinstance(result,dict):
+            return False
+
+        visible=bool(result.get("target_visible",False))
+        is_dummy=bool(result.get("target_is_dummy",False))
+        if not visible or not is_dummy:
+            self.jjs_vlm_dummy_hits=0
+            self.jjs_vlm_dummy_center=None
+            self.jjs_vlm_dummy_ts=0.0
+            return False
+
+        try:
+            confidence=max(0.0,min(1.0,float(result.get("confidence",0.0) or 0.0)))
+            cx=max(0.0,min(1.0,float(result.get("target_center_x"))))
+            cy=max(0.0,min(1.0,float(result.get("target_center_y"))))
+        except Exception:
+            self.jjs_vlm_dummy_hits=0
+            return False
+
+        if confidence < 0.46:
+            self.jjs_vlm_dummy_hits=0
+            return False
+
+        now=time.monotonic()
+        previous=self.jjs_vlm_dummy_center
+        if previous is None or now-self.jjs_vlm_dummy_ts>0.60:
+            self.jjs_vlm_dummy_hits=1
+            center=(cx,cy)
+        else:
+            jump=((cx-previous[0])**2+(cy-previous[1])**2)**0.5
+            if jump<=0.28:
+                self.jjs_vlm_dummy_hits=min(8,self.jjs_vlm_dummy_hits+1)
+                center=(previous[0]*0.65+cx*0.35, previous[1]*0.65+cy*0.35)
+            else:
+                self.jjs_vlm_dummy_hits=0
+                center=previous
+
+        self.jjs_vlm_dummy_center=center
+        self.jjs_vlm_dummy_ts=now
+
+        if self.jjs_vlm_dummy_hits<2:
+            return False
+
+        try:
+            distance=max(0.0,min(1.0,float(result.get("target_distance",0.82) or 0.82)))
+        except Exception:
+            distance=0.82
+
+        with self.jjs_camera_state_lock:
+            self.jjs_camera_target={
+                "kind":"dummy",
+                "center_x":center[0],
+                "center_y":center[1],
+                "distance":distance,
+                "distance_delta":result.get("target_distance_delta"),
+                "aim_alignment_delta":result.get("aim_alignment_delta"),
+                "stable":True,
+                "seen_ts":now,
+            }
+            self.jjs_camera_target_ts=now
+
+        # Normalizamos de vuelta al resultado para que el ejecutivo duro use
+        # exactamente la misma evidencia que el controlador de camara.
+        result["target_visible"]=True
+        result["target_is_dummy"]=True
+        result["target_name"]="Dummy"
+        result["target_center_x"]=center[0]
+        result["target_center_y"]=center[1]
+        result["target_distance"]=distance
+        return True
+
     def _jjs_apply_target_telemetry(self, result):
         """Mezcla la telemetria del controlador local antes de calcular recompensa."""
         if not isinstance(result,dict):
@@ -1207,6 +1286,9 @@ class NariApp:
             local_dummy=False
             if profile == "jjs":
                 marker_stable,local_dummy=self._jjs_apply_target_telemetry(result)
+                if not local_dummy:
+                    local_dummy=self._jjs_vlm_dummy_fallback(result)
+                    marker_stable=marker_stable or local_dummy
 
             # Recompensa estricta para la accion anterior.
             if previous_action is not None:
@@ -1310,7 +1392,7 @@ class NariApp:
             tactical_source=""
             if profile == "jjs":
                 local_visible=bool(result.get("target_visible",False))
-                local_dummy=local_dummy and local_visible
+                local_dummy=bool(local_dummy) and local_visible
                 target_name_check=str(result.get("target_name","") or "").lower()
                 if local_dummy or ("dummy" not in target_name_check and local_visible):
                     tactical_action,tactical_source=self._jjs_combat_override(
