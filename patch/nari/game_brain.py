@@ -86,11 +86,17 @@ class GameBrain:
         out = dict(action)
         kind = str(out.get("type", "")).lower().strip()
 
+        def number(value, default=0.0):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(default)
+
         if kind == "m1":
-            return {"type": "m1", "seconds": max(0.02, min(0.09, float(out.get("seconds", 0.045) or 0.045)))}
+            return {"type": "m1", "seconds": max(0.02, min(0.09, number(out.get("seconds", 0.045), 0.045)))}
 
         if kind == "block":
-            return {"type": "block", "seconds": max(0.08, min(0.60, float(out.get("seconds", 0.22) or 0.22)))}
+            return {"type": "block", "seconds": max(0.08, min(0.60, number(out.get("seconds", 0.22), 0.22)))}
 
         if kind == "double_tap_w":
             return {"type": "double_tap_w"}
@@ -99,7 +105,7 @@ class GameBrain:
             key = str(out.get("key", "w")).lower()
             if key not in {"w", "a", "d", "s"}:
                 return {"type": "wait", "seconds": 0.08}
-            seconds = float(out.get("seconds", 0.22) or 0.22)
+            seconds = number(out.get("seconds", 0.22), 0.22)
             return {
                 "type": "hold",
                 "key": key,
@@ -125,11 +131,11 @@ class GameBrain:
                 return {"type": "wait", "seconds": 0.08}
             # Limitamos deliberadamente el giro para que un error visual no
             # convierta una microdecision en un giro gigantesco.
-            dx = max(-250, min(250, int(float(out.get("dx", 0) or 0))))
-            dy = max(-170, min(170, int(float(out.get("dy", 0) or 0))))
+            dx = max(-250, min(250, int(number(out.get("dx", 0), 0))))
+            dy = max(-170, min(170, int(number(out.get("dy", 0), 0))))
             if dx == 0 and dy == 0:
                 return {"type": "wait", "seconds": 0.08}
-            seconds = max(0.035, min(0.10, float(out.get("seconds", 0.055) or 0.055)))
+            seconds = max(0.035, min(0.10, number(out.get("seconds", 0.055), 0.055)))
             if commit:
                 self.last_camera_ts = now
             if kind == "camera_key_turn":
@@ -155,15 +161,15 @@ class GameBrain:
             return {"type": "toggle_shift_lock"}
 
         if kind == "click":
-            x = max(0, min(1000, int(float(out.get("x", 500) or 500))))
-            y = max(0, min(1000, int(float(out.get("y", 500) or 500))))
+            x = max(0, min(1000, int(number(out.get("x", 500), 500))))
+            y = max(0, min(1000, int(number(out.get("y", 500), 500))))
             button = str(out.get("button", "left")).lower()
             if button not in {"left", "right"}:
                 button = "left"
             return {"type": "click", "x": x, "y": y, "normalized": True, "button": button}
 
         if kind == "wait":
-            return {"type": "wait", "seconds": max(0.035, min(0.18, float(out.get("seconds", 0.06) or 0.06)))}
+            return {"type": "wait", "seconds": max(0.035, min(0.18, number(out.get("seconds", 0.06), 0.06)))}
 
         return {"type": "wait", "seconds": 0.08}
 
