@@ -8,8 +8,12 @@ class Memory:
     def __init__(self, path: Path):
         self.path=Path(path)
         self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.db=sqlite3.connect(self.path,check_same_thread=False)
+        self.db=sqlite3.connect(self.path,check_same_thread=False,timeout=8.0)
         self.db.row_factory=sqlite3.Row
+        try:
+            self.db.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
         self._init()
 
     def _columns(self, table):
