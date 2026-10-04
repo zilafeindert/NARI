@@ -79,7 +79,20 @@ class VoiceListener:
                 bad=zf.testzip()
                 if bad:
                     raise RuntimeError("ZIP del modelo dañado: "+bad)
-                zf.extractall(extract)
+
+                root_extract=extract.resolve()
+                for member in zf.infolist():
+                    target=(extract/member.filename).resolve()
+                    try:
+                        target.relative_to(root_extract)
+                    except ValueError:
+                        raise RuntimeError("ZIP del modelo invalido: ruta fuera del destino.")
+                    if member.filename.endswith("/"):
+                        target.mkdir(parents=True,exist_ok=True)
+                        continue
+                    target.parent.mkdir(parents=True,exist_ok=True)
+                    with zf.open(member,"r") as src, target.open("wb") as dst:
+                        shutil.copyfileobj(src,dst)
 
             candidates=[p for p in extract.iterdir() if p.is_dir()]
             if not candidates:
@@ -98,7 +111,8 @@ class VoiceListener:
 
 
     def start(self):
-        if self.running: return
+        if self.running and self.thread and self.thread.is_alive():
+            return
         if sd is None: raise RuntimeError("sounddevice no esta instalado")
         if Model is None: raise RuntimeError("Vosk no esta instalado")
         self._ensure_model()
