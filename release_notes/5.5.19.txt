@@ -1,0 +1,10 @@
+NARI 5.5.19
+
+JJS Dummy control audit.
+
+- Fixed a runtime NameError in the combat override that could terminate the game loop at close combat range.
+- The VLM can now activate Dummy tracking even when target_visible is omitted, when the model explicitly identifies the Dummy.
+- Fixed telemetry handling that turned legitimate zero coordinates or zero distance into fallback values.
+- The local camera controller now consumes a fresh VLM Dummy target when the green marker detector misses it, so it can still re-aim instead of waiting forever.
+- Prevented the camera loop from extending a stale VLM target indefinitely.
+- Added visible JJS target source/position/distance and execution-result diagnostics to the game status.
