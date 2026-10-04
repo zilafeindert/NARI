@@ -1359,7 +1359,12 @@ class NariApp:
             except Exception as exc:
                 exec_result = "ERROR: " + str(exc)
 
-            execution_failed = str(exec_result).startswith("ERROR:")
+            execution_text=str(exec_result)
+            execution_failed=(
+                execution_text.startswith("ERROR:")
+                or execution_text.startswith("accion no soportada:")
+                or execution_text in {"accion invalida","pyautogui no disponible"}
+            )
             if execution_failed and self.learning_enabled:
                 try:
                     self.agent.game_record(
