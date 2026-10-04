@@ -982,6 +982,29 @@ class NariApp:
 
             time.sleep(0.025)
 
+    def _jjs_normalize_human_target(self, result):
+        if not isinstance(result,dict):
+            return result
+
+        if bool(result.get("target_is_dummy",False)):
+            return result
+
+        name=str(result.get("target_name","") or "").strip().lower()
+        obs=str(result.get("observation","") or "").strip().lower()
+        note=str(result.get("decision_note","") or "").strip().lower()
+        blob=" ".join((name,obs,note))
+        terms=("enemy","opponent","rival","player","enemigo","jugador","oponente","adversario","avatar")
+        explicit=any(t in blob for t in terms)
+
+        if explicit:
+            result["target_visible"]=True
+            result["target_is_dummy"]=False
+            if not name:
+                result["target_name"]="enemy"
+            result.setdefault("target_center_x",0.5)
+            result.setdefault("target_center_y",0.5)
+        return result
+
     def _jjs_update_human_target(self, result, now, is_dummy=False):
         """Actualiza el objetivo humano de forma centralizada antes de cualquier decisión."""
         if is_dummy:
@@ -1384,6 +1407,9 @@ class NariApp:
                 else:
                     local_dummy=self._jjs_vlm_dummy_fallback(result)
                     marker_stable=marker_stable or local_dummy
+
+            if profile=="jjs" and not local_dummy:
+                result=self._jjs_normalize_human_target(result)
 
             # Recompensa estricta para la accion anterior.
             if previous_action is not None:
