@@ -8,7 +8,7 @@ import requests
 from .config import ROOT, SETTINGS_FILE
 
 APP_NAME = "NARI"
-APP_VERSION = "5.5.3"
+APP_VERSION_FALLBACK = "0.0.0"
 OFFICIAL_REPO = "zilafeindert/NARI"
 GITHUB_TIMEOUT = 15
 
@@ -21,7 +21,17 @@ def _local_version() -> str:
                 return value
     except Exception:
         pass
-    return APP_VERSION
+
+    try:
+        version_file = ROOT.parent / "version.json"
+        data = json.loads(version_file.read_text(encoding="utf-8"))
+        value = str(data.get("version","")).strip()
+        if value:
+            return value
+    except Exception:
+        pass
+
+    return APP_VERSION_FALLBACK
 
 # The launcher uses this dynamic build version so an installed release does
 # not repeatedly offer the same update after the app was upgraded.
@@ -85,28 +95,67 @@ def apply(zip_url: str, version: str) -> str:
                     if chunk: f.write(chunk)
         with zipfile.ZipFile(archive) as zf:
             bad=zf.testzip()
-            if bad: raise RuntimeError("ZIP dañado: "+bad)
-            zf.extractall(extract)
+            if bad:
+                raise RuntimeError("ZIP dañado: "+bad)
+
+            root_extract=extract.resolve()
+            for member in zf.infolist():
+                target=(extract / member.filename).resolve()
+                try:
+                    target.relative_to(root_extract)
+                except ValueError:
+                    raise RuntimeError("ZIP invalido: ruta fuera del destino.")
+                if member.filename.endswith("/"):
+                    target.mkdir(parents=True,exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True,exist_ok=True)
+                with zf.open(member,"r") as src, target.open("wb") as dst:
+                    shutil.copyfileobj(src,dst)
         source=extract
         dirs=[p for p in extract.iterdir() if p.is_dir()]
         files=[p for p in extract.iterdir() if p.is_file()]
         if len(dirs)==1 and not files: source=dirs[0]
         backup.mkdir(parents=True,exist_ok=True)
         changed=[]
+        created=[]
         try:
             for item in source.rglob("*"):
-                if not item.is_file(): continue
+                if not item.is_file():
+                    continue
                 rel=item.relative_to(source)
-                if rel.parts and rel.parts[0] in PRESERVE_NAMES: continue
-                dest=ROOT/rel; dest.parent.mkdir(parents=True,exist_ok=True)
+                if rel.parts and rel.parts[0] in PRESERVE_NAMES:
+                    continue
+
+                dest=ROOT/rel
+                dest.parent.mkdir(parents=True,exist_ok=True)
+
                 if dest.exists() and dest.is_file():
-                    b=backup/rel; b.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(dest,b); changed.append((dest,b))
-                elif dest.exists() and dest.is_dir(): shutil.rmtree(dest)
+                    b=backup/rel
+                    b.parent.mkdir(parents=True,exist_ok=True)
+                    shutil.copy2(dest,b)
+                    changed.append((dest,b))
+                elif dest.exists() and dest.is_dir():
+                    shutil.rmtree(dest)
+
+                if not dest.exists():
+                    created.append(dest)
+
                 shutil.copy2(item,dest)
         except Exception:
+            for dest in reversed(created):
+                try:
+                    if dest.exists() and dest.is_file():
+                        dest.unlink()
+                except Exception:
+                    pass
             for dest,b in reversed(changed):
-                if dest.exists() and dest.is_file(): dest.unlink()
-                if b.exists(): shutil.copy2(b,dest)
+                try:
+                    if dest.exists() and dest.is_file():
+                        dest.unlink()
+                    if b.exists():
+                        shutil.copy2(b,dest)
+                except Exception:
+                    pass
             raise
         return f"NARI actualizado a {version}. Se conservaron memoria, modelos, voces, .venv y .env."
     finally:
