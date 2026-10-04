@@ -10,7 +10,7 @@ class TTS:
         self.on_speaking=None
         self.on_error=None
         self.voice_file=Path(voice_file) if voice_file else None
-        self._lock=threading.Lock()
+        self._lock=threading.RLock()
         self._process=None
 
     def stop(self):
