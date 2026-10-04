@@ -396,7 +396,7 @@ class Agent:
             fixed=[]
             for action in (result.get("actions") or [])[:2]:
                 if isinstance(action,dict):
-                    fixed.append(brain.validate_action(action))
+                    fixed.append(brain.validate_action(action, commit=False))
             result["actions"]=fixed[:2]
             result["reply"]=Agent._clean_visible_reply(result.get("reply",""))
             result["model"]=model
