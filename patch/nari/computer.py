@@ -469,7 +469,34 @@ class Computer:
         t = str(action.get("type", "")).lower()
 
         try:
-            if t == "m1":
+            if t == "advance_m1":
+                self.mouse_lock.acquire()
+                try:
+                    self._center_cursor_in_target()
+                    time.sleep(0.010)
+                    duration=max(0.075,min(0.18,float(action.get("seconds",0.11) or 0.11)))
+                    self._key_down("w")
+                    try:
+                        try:
+                            self._mouse_button("left",True)
+                            try:
+                                time.sleep(duration)
+                            finally:
+                                self._mouse_button("left",False)
+                        except Exception:
+                            if pyautogui is not None:
+                                pyautogui.mouseDown(button="left")
+                                try:
+                                    time.sleep(duration)
+                                finally:
+                                    pyautogui.mouseUp(button="left")
+                            else:
+                                raise
+                    finally:
+                        self._key_up("w")
+                finally:
+                    self.mouse_lock.release()
+            elif t == "m1":
                 self.mouse_lock.acquire()
                 try:
                     # La cámara usa movimiento relativo y desplaza el cursor del
