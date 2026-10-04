@@ -1,0 +1,8 @@
+NARI 5.5.22
+
+JJS Dummy attack transition fix.
+
+- Reconstructed the Dummy attack gate after the 5.5.21 syntax issue.
+- Once the Dummy is centered, four successful micro-approaches are enough to enter deterministic M1 mode.
+- A close-range estimate enters M1 mode immediately.
+- The main game loop and local controller now share the same Dummy attack state without the previous distance-only lock.
