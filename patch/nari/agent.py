@@ -350,6 +350,50 @@ class Agent:
                 result["confidence"]=0.55
         return result
 
+    def jjs_target_scan(self, images_b64):
+        """Escaner VLM compacto exclusivo para adquirir rivales en JJS."""
+        model=self._pick_vision_model()
+        system=(
+            "/no_think "
+            "Eres un detector visual de objetivos para Jujutsu Shenanigans. "
+            "Responde SOLO JSON, sin explicaciones. "
+            "Ignora HUD, texto, decoracion y el avatar propio del jugador. "
+            "Busca el avatar humano enemigo mas claro y cercano dentro de la arena. "
+            "El enemigo es cualquier otro personaje humano visible distinto del avatar propio. "
+            "Si hay un enemigo visible, target_visible DEBE ser true, target_is_dummy=false, "
+            "target_name debe ser enemy y target_center_x/y deben indicar el centro aproximado del torso en 0..1. "
+            "El Dummy solo es target_is_dummy=true cuando el cuadrado verde sobre su cabeza sea visible. "
+            "Si no hay ningun objetivo identificable, target_visible=false. "
+            'Usa exactamente este esquema: {"target_visible":false,"target_is_dummy":false,'
+            '"target_name":"","target_center_x":0.5,"target_center_y":0.5,"target_distance":0.75,'
+            '"confidence":0.0,"opponent_attacking":false,"target_stunned":false,"target_blocking":false,'
+            '"player_stunned":false,"player_ragdolled":false,"player_dead":false}.'
+        )
+        msg={
+            "role":"user",
+            "content":(
+                "Adquiere UN solo objetivo de combate. Prioridad: enemigo humano > Dummy. "
+                "Compara las dos imagenes mas recientes cuando existan para separar personaje vivo "
+                "de decoracion o imagen estatica."
+            ),
+            "images":images_b64[-2:],
+        }
+        try:
+            raw=self._call(
+                [{"role":"system","content":system},msg],
+                model, 2.4, 56, 768, think=False
+            )
+        except Exception:
+            raw=self._call(
+                [{"role":"system","content":system},msg],
+                model, 1.8, 40, 640, think=False
+            )
+        result=self._normalize(self._parse(raw))
+        result=self._normalize_jjs_target(result)
+        result["actions"]=[]
+        result["model"]=model
+        return result
+
     def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
         """Percepcion visual + deliberacion de juego.
 
