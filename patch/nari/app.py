@@ -37,7 +37,10 @@ class NariApp:
         self.settings = load_settings()
         self.memory = Memory(MEMORY_DB)
         self.computer = Computer(DATA)
-        self.screen = ScreenVideo(self.settings.get("screen_fps", 20), analysis_width=int(self.settings.get("game_analysis_width", 768)))
+        self.screen = ScreenVideo(
+            self.settings.get("screen_fps", 30),
+            analysis_width=int(self.settings.get("game_capture_width", 768))
+        )
         self.people = PeopleVision(MODELS / "vision")
         self.agent = Agent(self.memory, self.computer, web_search, self._status, self._token)
         self.agent.set_settings(self.settings)
