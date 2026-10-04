@@ -216,8 +216,8 @@ class GameBrain:
                 action = pool[(idx + offset) % len(pool)]
                 key = self.learner.action_key(action)
                 if not self._is_bad_repeat(key, 0.0):
-                    return self.validate_action(action)
-            return self.validate_action(pool[idx % len(pool)])
+                    return self.validate_action(action, commit=False)
+            return self.validate_action(pool[idx % len(pool)], commit=False)
 
         if self.profile == "roblox":
             pool = [
@@ -277,4 +277,4 @@ class GameBrain:
         return self.validate_action(fallback, commit=True), "recuperacion"
 
     def fallback(self, cycle: int = 0) -> dict:
-        return self._novelty_candidates(cycle)
+        return self.validate_action(self._novelty_candidates(cycle), commit=True)
