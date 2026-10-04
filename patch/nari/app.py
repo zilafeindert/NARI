@@ -948,6 +948,7 @@ class NariApp:
                 except Exception:
                     pass
 
+            vlm_dummy=False
             candidates = [
                 x for x in (result.get("actions") or [])
                 if isinstance(x, dict)
@@ -1129,7 +1130,6 @@ class NariApp:
             # Si el detector local no ve el marcador, el VLM solo puede tomar
             # control de camara cuando afirma explicitamente que ve al Dummy con
             # confianza suficiente. Nunca usamos un giro de exploracion aleatorio del VLM.
-            vlm_dummy=False
             if profile == "jjs" and marker is None:
                 target_name_vlm=str(result.get("target_name","") or "").lower()
                 vlm_dummy=(
