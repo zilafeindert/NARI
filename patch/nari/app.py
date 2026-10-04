@@ -1390,7 +1390,11 @@ class NariApp:
             execution_failed=(
                 execution_text.startswith("ERROR:")
                 or execution_text.startswith("accion no soportada:")
-                or execution_text in {"accion invalida","pyautogui no disponible"}
+                or execution_text in {
+                    "accion invalida",
+                    "pyautogui no disponible",
+                    "DETENIDO",
+                }
             )
             if execution_failed and self.learning_enabled:
                 try:
