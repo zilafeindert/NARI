@@ -1,0 +1,8 @@
+NARI 5.5.20
+
+JJS Dummy controller hardening.
+
+- Dummy approach and M1 no longer wait for a fresh VLM heartbeat once a target is stably tracked.
+- Shared Dummy-action timing prevents the game loop and camera controller from double-pressing movement/attack at the same moment.
+- Local execution now checks the returned result before marking a Dummy action as successful.
+- Preserves the 5.5.19 crash fix, VLM camera bridge, stale-target protection and diagnostics.
