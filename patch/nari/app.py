@@ -972,10 +972,11 @@ class NariApp:
             return {"type":"wait","seconds":0.10}, "combat-stun-wait"
 
         if not visible:
-            self.jjs_human_center_smooth=None
-            self.jjs_human_stable_hits=0
-            self.jjs_human_prev_aim_error=None
-            self.jjs_human_center_ts=0.0
+            with self.jjs_camera_state_lock:
+                self.jjs_human_center_smooth=None
+                self.jjs_human_stable_hits=0
+                self.jjs_human_prev_aim_error=None
+                self.jjs_human_center_ts=0.0
             self.jjs_combat_phase="search"
             return None, "combat-search"
 
@@ -997,10 +998,11 @@ class NariApp:
         # Seguimiento visual suave para jugadores reales.
         # Suavizamos el centro que entrega el VLM antes de convertirlo en movimiento.
         if "target_center_x" not in result or "target_center_y" not in result:
-            self.jjs_human_center_smooth=None
-            self.jjs_human_stable_hits=0
-            self.jjs_human_prev_aim_error=None
-            self.jjs_human_center_ts=0.0
+            with self.jjs_camera_state_lock:
+                self.jjs_human_center_smooth=None
+                self.jjs_human_stable_hits=0
+                self.jjs_human_prev_aim_error=None
+                self.jjs_human_center_ts=0.0
             self.jjs_combat_phase="aim-wait"
             return {"type":"wait","seconds":0.08}, "combat-no-center"
 
@@ -1010,32 +1012,41 @@ class NariApp:
         except Exception:
             cx,cy=0.5,0.5
 
-        previous_human=self.jjs_human_center_smooth
+        with self.jjs_camera_state_lock:
+            previous_human=self.jjs_human_center_smooth
+            previous_hits=self.jjs_human_stable_hits
+
         if previous_human is None:
-            self.jjs_human_center_smooth=(cx,cy)
-            self.jjs_human_stable_hits=1
+            smooth_human=(cx,cy)
+            human_hits=1
         else:
             jump=((cx-previous_human[0])**2+(cy-previous_human[1])**2)**0.5
             if jump<=0.22:
-                self.jjs_human_center_smooth=(
+                smooth_human=(
                     previous_human[0]*0.68 + cx*0.32,
                     previous_human[1]*0.68 + cy*0.32,
                 )
-                self.jjs_human_stable_hits=min(8,self.jjs_human_stable_hits+1)
+                human_hits=min(8,previous_hits+1)
             else:
-                self.jjs_human_stable_hits=0
+                smooth_human=previous_human
+                human_hits=0
 
-        aim_center=self.jjs_human_center_smooth
+        with self.jjs_camera_state_lock:
+            self.jjs_human_center_smooth=smooth_human
+            self.jjs_human_stable_hits=human_hits
+            self.jjs_human_center_ts=now
+
+        aim_center=smooth_human
         if aim_center is None or self.jjs_human_stable_hits<1:
             self.jjs_combat_phase="aim-wait"
             return {"type":"wait","seconds":0.08}, "combat-aim-wait"
 
         cx,cy=aim_center
-        self.jjs_human_center_ts=now
         aim_error=((cx-0.5)**2 + (cy-0.5)**2)**0.5
-        if self.jjs_human_prev_aim_error is not None:
-            result["aim_alignment_delta"]=float(self.jjs_human_prev_aim_error-aim_error)
-        self.jjs_human_prev_aim_error=aim_error
+        with self.jjs_camera_state_lock:
+            if self.jjs_human_prev_aim_error is not None:
+                result["aim_alignment_delta"]=float(self.jjs_human_prev_aim_error-aim_error)
+            self.jjs_human_prev_aim_error=aim_error
 
         centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
         if not centered:
