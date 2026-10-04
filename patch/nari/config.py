@@ -33,8 +33,9 @@ def load_settings() -> dict:
         "wake_word": WAKE_WORD,
         "silence_seconds": END_SILENCE_SECONDS,
         "max_utterance_seconds": MAX_UTTERANCE_SECONDS,
-        "screen_fps": 20,
-        "vision_interval": 0.14,
+        "screen_fps": 30,
+        "vision_interval": 0.12,
+        "game_capture_width": 768,
         "game_analysis_width": 640,
         "temporal_frames": 2,
         "talk_when_idle": False,
@@ -54,7 +55,7 @@ def load_settings() -> dict:
         "microphone_device": None,
         "learning_enabled": True,
         "learning_exploration": 0.08,
-        "performance_profile_version": 5,
+        "performance_profile_version": 6,
     }
     if SETTINGS_FILE.exists():
         try:
@@ -66,17 +67,18 @@ def load_settings() -> dict:
     # Migración de rendimiento: reemplaza ajustes heredados lentos por el
     # perfil de baja latencia de NARI, una sola vez.
     try:
-        if int(base.get("performance_profile_version", 0) or 0) < 5:
-            base["screen_fps"] = 20
-            base["vision_interval"] = 0.14
+        if int(base.get("performance_profile_version", 0) or 0) < 6:
+            base["screen_fps"] = 30
+            base["vision_interval"] = 0.12
+            base["game_capture_width"] = 768
             base["game_analysis_width"] = 640
             base["temporal_frames"] = 2
             base["game_inference_fps"] = 6.0
             base["game_max_actions"] = 1
-            base["learning_exploration"] = 0.08
-            base["performance_profile_version"] = 5
+            base["learning_exploration"] = 0.06
+            base["performance_profile_version"] = 6
     except Exception:
-        base["performance_profile_version"] = 3
+        base["performance_profile_version"] = 6
 
     # Never retain an empty repo after an upgrade.
     if not str(base.get("github_repo", "")).strip():
