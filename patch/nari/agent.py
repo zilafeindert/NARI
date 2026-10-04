@@ -344,7 +344,7 @@ class Agent:
             '"actions":[{"type":"..."},{"type":"..."}]}. '
             "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
             "el controlador local ejecutara SOLO UNA. "
-            "Acciones permitidas: hold(key=w/a/s/d,seconds), block(seconds), m1(seconds), "
+            "Acciones permitidas: hold(key=w/a/s/d,seconds), block(seconds), m1(seconds), advance_m1(seconds), "
             "double_tap_w, keys(keys=[shift,w],seconds), press(key=space/e/q/r/f/g/1/2/3/4), "
             "camera_turn(dx,dy,seconds), camera_drag(dx,dy,seconds), camera_key_turn(dx,dy,seconds), "
             "toggle_shift_lock, "
