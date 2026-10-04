@@ -1083,7 +1083,7 @@ class NariApp:
         obs=str(result.get("observation","") or "").strip().lower()
         note=str(result.get("decision_note","") or "").strip().lower()
         blob=" ".join((name,obs,note))
-        terms=("enemy","opponent","rival","enemigo","oponente","adversario")
+        terms=("enemy","opponent","rival","foe","hostile","adversary","enemigo","oponente","adversario","jugador enemigo","enemy player")
         explicit=any(t in blob for t in terms)
 
         if explicit:
@@ -1102,6 +1102,24 @@ class NariApp:
 
         visible=bool(result.get("target_visible",False))
         if not visible:
+            # Mantener brevemente el ultimo objetivo estable evita que una sola
+            # lectura VLM perdida apague la camara y el ataque inmediatamente.
+            with self.jjs_camera_state_lock:
+                cached=self.jjs_human_center_smooth
+                cached_hits=self.jjs_human_stable_hits
+                cached_ts=self.jjs_human_center_ts
+            if (
+                cached is not None
+                and cached_hits>=2
+                and now-cached_ts<=0.90
+            ):
+                result["target_visible"]=True
+                result["target_is_dummy"]=False
+                result["target_name"]="enemy"
+                result["target_center_x"]=float(cached[0])
+                result["target_center_y"]=float(cached[1])
+                return cached, cached_hits
+
             with self.jjs_camera_state_lock:
                 self.jjs_human_center_smooth=None
                 self.jjs_human_stable_hits=0
@@ -1436,6 +1454,7 @@ class NariApp:
         previous_goal_state = ""
         last_decision_ui = 0.0
         next_vlm_ts = 0.0
+        next_action_ts = 0.0
 
         while self.game_running:
             if __import__("sys").platform == "win32":
@@ -1452,6 +1471,12 @@ class NariApp:
             if frame is None:
                 time.sleep(0.03)
                 continue
+
+            if profile=="jjs":
+                now_action=time.monotonic()
+                if now_action < next_action_ts:
+                    time.sleep(min(0.025,max(0.004,next_action_ts-now_action)))
+                    continue
 
             state = self.agent.game_state_key(frame, profile) if self.learning_enabled else ""
 
@@ -1500,6 +1525,11 @@ class NariApp:
                 else:
                     result=latest_result
                     result["_vlm_age"]=vlm_age
+                    if vlm_age>0.90:
+                        # Una lectura VLM vieja no debe gobernar el combate indefinidamente.
+                        result["target_visible"]=False
+                        result["actions"]=[]
+                        result["decision_note"]="lectura VLM obsoleta; reacquisicion"
             else:
                 if now_loop < next_vlm_ts:
                     time.sleep(min(0.03,max(0.005,next_vlm_ts-now_loop)))
@@ -1698,6 +1728,11 @@ class NariApp:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
             except Exception as exc:
                 exec_result = "ERROR: " + str(exc)
+
+            if profile=="jjs":
+                # El VLM y la percepcion siguen siendo asincronos; el control local
+                # conserva una cadencia estable para no spamear entradas.
+                next_action_ts=time.monotonic()+0.035
 
             execution_text=str(exec_result)
             execution_failed=(
