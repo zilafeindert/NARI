@@ -1194,7 +1194,10 @@ class NariApp:
                 continue
 
             try:
-                result = self.agent.vision(goal, imgs, profile=profile, previous_action=previous_label, state_key=learning_state)
+                result = self.agent.vision(
+                    goal, imgs, profile=profile,
+                    previous_action=previous_label, state_key=state
+                )
                 next_vlm_ts=time.monotonic()+1.0/max(
                     1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0)
                 )
@@ -1290,10 +1293,12 @@ class NariApp:
                     if td>0.60:
                         forced_action={"type":"hold","key":"w","seconds":0.18}
                         forced_source="target-approach"
-                    elif not bool(result.get("cooldown_active",False)) and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.14:
+                    elif (
+                        not bool(result.get("cooldown_active",False))
+                        and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.14
+                    ):
                         forced_action={"type":"m1","seconds":0.055}
                         forced_source="target-attack"
-                        self.jjs_last_attack_ts=time.monotonic()
 
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
@@ -1394,6 +1399,13 @@ class NariApp:
                     )
                 except Exception:
                     pass
+
+            if (
+                not execution_failed
+                and forced_source == "target-attack"
+                and str(action.get("type","")).lower()=="m1"
+            ):
+                self.jjs_last_attack_ts=time.monotonic()
 
             decision = self.agent.game_learner.action_key(action)
             decision_note = str(result.get("decision_note", "") or "")
