@@ -1,0 +1,9 @@
+NARI 5.5.21
+
+JJS Dummy attack transition.
+
+- Removed the hard dependency on the estimated Dummy distance for the first attack.
+- After four successful micro-approaches while the Dummy is centered, the controller enters deterministic M1 attack mode.
+- A valid close-range estimate still enters attack mode immediately.
+- The main game loop and local camera controller share the same attack mode so one layer cannot keep forcing W forever.
+- Attack mode resets when the Dummy target is genuinely lost.
