@@ -23,8 +23,13 @@ class ScreenVideo:
         self.lock=threading.Lock(); self.thread=None; self.sct=None
         self.monitor_left=0; self.monitor_top=0
     def start(self):
-        if mss is None: raise RuntimeError("Falta mss")
-        self.running=True; self.thread=threading.Thread(target=self._loop,daemon=True); self.thread.start()
+        if mss is None:
+            raise RuntimeError("Falta mss")
+        if self.running and self.thread and self.thread.is_alive():
+            return
+        self.running=True
+        self.thread=threading.Thread(target=self._loop,daemon=True,name="NARI-screen-capture")
+        self.thread.start()
     def set_target_window(self, hwnd):
         try:
             self.target_hwnd = int(hwnd) if hwnd else None
@@ -69,28 +74,48 @@ class ScreenVideo:
         return frame
 
     def _loop(self):
-        self.sct=mss.mss(); monitor=self.sct.monitors[0]
-        self.monitor_left=int(monitor.get("left",0)); self.monitor_top=int(monitor.get("top",0))
-        period=1/max(1,self.fps)
-        while self.running:
-            t=time.perf_counter()
-            raw=np.array(self.sct.grab(monitor))[:,:,:3][:,:,::-1]
-            region=self._client_region()
-            game=None
-            if region:
-                x,y,w,h=region
-                x2=min(raw.shape[1],x+w); y2=min(raw.shape[0],y+h)
-                if x < x2 and y < y2:
-                    game=raw[y:y2,x:x2].copy()
-            frame=self._resize(raw,self.analysis_width)
-            game_frame=self._resize(game,self.analysis_width) if game is not None else None
-            with self.lock:
-                self.latest_frame=frame
-                self.history.append((time.time(), frame.copy()))
-                if game_frame is not None:
-                    self.latest_game_frame=game_frame
-                    self.game_history.append((time.time(), game_frame.copy()))
-            time.sleep(max(0,period-(time.perf_counter()-t)))
+        try:
+            self.sct=mss.mss()
+            monitor=self.sct.monitors[0]
+            self.monitor_left=int(monitor.get("left",0))
+            self.monitor_top=int(monitor.get("top",0))
+            period=1/max(1,self.fps)
+
+            while self.running:
+                t=time.perf_counter()
+                try:
+                    raw=np.array(self.sct.grab(monitor))[:,:,:3][:,:,::-1]
+                    region=self._client_region()
+                    game=None
+                    if region:
+                        x,y,w,h=region
+                        x2=min(raw.shape[1],x+w)
+                        y2=min(raw.shape[0],y+h)
+                        if x < x2 and y < y2:
+                            game=raw[y:y2,x:x2].copy()
+
+                    frame=self._resize(raw,self.analysis_width)
+                    game_frame=self._resize(game,self.analysis_width) if game is not None else None
+                    with self.lock:
+                        self.latest_frame=frame
+                        self.history.append((time.time(), frame.copy()))
+                        if game_frame is not None:
+                            self.latest_game_frame=game_frame
+                            self.game_history.append((time.time(), game_frame.copy()))
+                except Exception:
+                    # MSS puede fallar momentaneamente al cambiar monitor/ventana.
+                    # No matamos el hilo de captura por un solo frame.
+                    time.sleep(0.20)
+
+                time.sleep(max(0,period-(time.perf_counter()-t)))
+        except Exception:
+            self.running=False
+        finally:
+            try:
+                if self.sct is not None:
+                    self.sct.close()
+            except Exception:
+                pass
     def latest(self):
         with self.lock:return None if self.latest_frame is None else self.latest_frame.copy()
     def latest_game(self):
@@ -230,10 +255,21 @@ class PeopleVision:
     def __init__(self,models_dir):
         self.models_dir=Path(models_dir); self.running=False; self.cap=None; self.frame=None; self.lock=threading.Lock()
     def start(self,index=0):
-        if cv2 is None:return False
+        if cv2 is None:
+            return False
+        if self.running:
+            return True
         self.cap=cv2.VideoCapture(index)
-        if not self.cap.isOpened():return False
-        self.running=True; threading.Thread(target=self._loop,daemon=True).start(); return True
+        if not self.cap.isOpened():
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap=None
+            return False
+        self.running=True
+        threading.Thread(target=self._loop,daemon=True,name="NARI-people-camera").start()
+        return True
     def stop(self):
         self.running=False
         if self.cap:
