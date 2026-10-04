@@ -1053,19 +1053,38 @@ class NariApp:
 
             next_ts=stamp+interval
 
+    def _jjs_search_camera_pulse(self):
+        now=time.monotonic()
+        if now-self.jjs_camera_last_move_ts<0.55:
+            return
+        direction=self.jjs_camera_search_direction or 1
+        self.jjs_camera_search_direction=-direction
+        try:
+            self.computer.act({
+                "type":"camera_turn",
+                "dx":48*direction,
+                "dy":0,
+                "seconds":0.10,
+            })
+            self.jjs_camera_last_move_ts=time.monotonic()
+        except Exception:
+            pass
+
     def _jjs_recovery_action(self):
         """Movimiento de recuperacion que impide que un fallo/perdida del VLM congele JJS."""
         now=time.monotonic()
-        if now-self.jjs_last_recovery_action_ts<0.34:
-            return {"type":"wait","seconds":0.06}, "jjs-recovery-wait"
+        if now-self.jjs_last_recovery_action_ts<0.30:
+            return {"type":"wait","seconds":0.05}, "jjs-recovery-wait"
 
         self.jjs_last_recovery_action_ts=now
-        cursor=self.jjs_recovery_cursor%5
+        cursor=self.jjs_recovery_cursor%6
         self.jjs_recovery_cursor+=1
-        if cursor in (0,1,2):
-            return {"type":"hold","key":"w","seconds":0.18}, "jjs-recovery-forward"
-        if cursor==3:
+        if cursor in (0,1,2,3):
+            # Mientras adquiere objetivo, no se queda mirando: presiona W y M1 a la vez.
+            return {"type":"advance_m1","seconds":0.11}, "jjs-acquire-advance-m1"
+        if cursor==4:
             return {"type":"hold","key":"a","seconds":0.12}, "jjs-recovery-left"
+        self._jjs_search_camera_pulse()
         return {"type":"hold","key":"d","seconds":0.12}, "jjs-recovery-right"
 
     def _jjs_normalize_human_target(self, result):
