@@ -622,7 +622,7 @@ class NariApp:
                 self._status("⚠ Aprendizaje: "+str(exc)[:90])
 
         with self.game_action_lock:
-        
+
         self.game_running=True
         if profile == "jjs":
             self._start_jjs_camera_controller()
@@ -1362,7 +1362,7 @@ class NariApp:
                 action,source=self.agent.game_choose_action(
                     candidates,confidence,self.game_cycle,frame,state_key=learning_state
                 )
-    
+
             try:
                 exec_result = self.computer.act(action) if self.auto_var.get() else "autonomia apagada"
             except Exception as exc:
