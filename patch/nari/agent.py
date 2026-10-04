@@ -281,6 +281,75 @@ class Agent:
         self.history += [{"role": "user", "content": text}, {"role": "assistant", "content": result.get("reply", "")}]
         return self._apply_memory_actions(result)
 
+    @staticmethod
+    def _normalize_jjs_target(result):
+        if not isinstance(result,dict):
+            return result
+
+        name=str(result.get("target_name","") or "").strip().lower()
+        obs=str(result.get("observation","") or "").strip().lower()
+        note=str(result.get("decision_note","") or "").strip().lower()
+        blob=" ".join((name,obs,note))
+
+        dummy=(
+            bool(result.get("target_is_dummy",False))
+            or "dummy" in name
+            or "dummy" in obs
+            or "dummy" in note
+        )
+
+        enemy_terms=(
+            "enemy","opponent","rival","player","enemigo","jugador",
+            "oponente","adversario","character","charactero","avatar"
+        )
+        human_explicit=(not dummy and any(term in blob for term in enemy_terms))
+
+        # Recover common model outputs when the strict scalar fields were omitted.
+        if "target_center_x" not in result or "target_center_y" not in result:
+            center=result.get("target_center")
+            try:
+                if isinstance(center,(list,tuple)) and len(center)>=2:
+                    cx=float(center[0]); cy=float(center[1])
+                    if cx>1.0 or cy>1.0:
+                        cx/=1000.0; cy/=1000.0
+                    result["target_center_x"]=max(0.0,min(1.0,cx))
+                    result["target_center_y"]=max(0.0,min(1.0,cy))
+                elif isinstance(center,dict):
+                    cx=float(center.get("x",0.5)); cy=float(center.get("y",0.5))
+                    if cx>1.0 or cy>1.0:
+                        cx/=1000.0; cy/=1000.0
+                    result["target_center_x"]=max(0.0,min(1.0,cx))
+                    result["target_center_y"]=max(0.0,min(1.0,cy))
+            except Exception:
+                pass
+
+        if "target_center_x" not in result or "target_center_y" not in result:
+            box=result.get("bbox") or result.get("target_bbox") or result.get("bounding_box")
+            try:
+                if isinstance(box,(list,tuple)) and len(box)>=4:
+                    x1,y1,x2,y2=[float(v) for v in box[:4]]
+                    if max(abs(x1),abs(y1),abs(x2),abs(y2))>1.0:
+                        x1/=1000.0; y1/=1000.0; x2/=1000.0; y2/=1000.0
+                    result["target_center_x"]=max(0.0,min(1.0,(x1+x2)/2.0))
+                    result["target_center_y"]=max(0.0,min(1.0,(y1+y2)/2.0))
+            except Exception:
+                pass
+
+        if dummy or human_explicit:
+            result["target_visible"]=True
+            result["target_is_dummy"]=bool(dummy)
+            if dummy:
+                result["target_name"]="Dummy"
+            elif not str(result.get("target_name","") or "").strip():
+                result["target_name"]="enemy"
+            result.setdefault("target_center_x",0.5)
+            result.setdefault("target_center_y",0.5)
+            try:
+                result["confidence"]=max(0.55,float(result.get("confidence",0.0) or 0.0))
+            except Exception:
+                result["confidence"]=0.55
+        return result
+
     def vision(self, goal, images_b64, profile="generic", previous_action="", state_key=""):
         """Percepcion visual + deliberacion de juego.
 
@@ -332,16 +401,15 @@ class Agent:
             "Tu trabajo es tomar decisiones utiles, variadas y verificables; no repitas "
             "automaticamente la ultima accion. "
             "Devuelve SOLO JSON valido: "
-            '{"observation":"...","goal_state":"...","decision_note":"...","confidence":0.0,'
-            '"action_effect":0.0,"progress_delta":0.0,'
-            '"target_visible":false,"target_is_dummy":false,"target_center_x":0.5,'
-            '"target_center_y":0.5,"target_distance":0.75,"target_distance_delta":0.0,'
-            '"target_stunned":false,"target_blocking":false,"opponent_attacking":false,'
+            '{"target_visible":false,"target_is_dummy":false,"target_name":"","target_center_x":0.5,'
+            '"target_center_y":0.5,"target_distance":0.75,"confidence":0.0,'
+            '"opponent_attacking":false,"target_stunned":false,"target_blocking":false,'
             '"player_stunned":false,"player_ragdolled":false,"player_dead":false,'
             '"hit_confirmed":false,"block_success":false,"ability_confirmed":false,'
             '"ability_whiff":false,"cooldown_active":false,"ko_confirmed":false,'
             '"enemy_health_delta":0.0,"player_health_delta":0.0,"aim_alignment_delta":0.0,'
-            '"actions":[{"type":"..."},{"type":"..."}]}. '
+            '"target_distance_delta":0.0,"action_effect":0.0,"progress_delta":0.0,'
+            '"actions":[{"type":"..."}],"observation":"...","goal_state":"...","decision_note":"..."}. '
             "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
             "el controlador local ejecutara SOLO UNA. "
             "Acciones permitidas: hold(key=w/a/s/d,seconds), block(seconds), m1(seconds), advance_m1(seconds), "
@@ -381,8 +449,12 @@ class Agent:
                 "target_center_y: 0.0=arriba y 1.0=abajo. target_distance: 0.0=muy cerca y 1.0=muy lejos. "
                 "target_distance_delta: negativo significa que se acerco. aim_alignment_delta: positivo "
                 "significa que el objetivo quedo mas centrado. target_is_dummy=true solo con evidencia del Dummy. "
-                "No inventes impactos, daño, bloqueo ni estados; compara los fotogramas cuando sea posible. "
-                "Da prioridad a confirmaciones de combate sobre cambios visuales genericos."
+                "En JJS, si aparece un avatar/personaje enemigo, target_visible DEBE ser true y target_is_dummy=false; "
+                "target_name debe ser enemy, opponent o player si no conoces el nombre; target_center_x/y deben ser el "
+                "centro aproximado del torso en 0..1. Ignora el avatar propio, HUD, texto y decoracion. Si hay varios "
+                "enemigos, elige el enemigo vivo mas claro y cercano. No dejes fuera la telemetria del objetivo aunque "
+                "no tengas datos de vida o combate. No inventes impactos, daño, bloqueo ni estados; compara los fotogramas "
+                "cuando sea posible. Da prioridad a adquirir un objetivo de combate antes que a describir la escena."
             ),
             "images":images_b64,
         }
@@ -394,7 +466,9 @@ class Agent:
             try:
                 raw=self._call(
                     [{"role":"system","content":system},msg],
-                    model, 5.5, 72, 1024, think=False
+                    model, 6.5 if profile=="jjs" else 5.5,
+                    160 if profile=="jjs" else 72,
+                    1152, think=False
                 )
             except Exception as first_error:
                 # Recuperacion: algunos builds/modelos visuales fallan con varias
@@ -402,10 +476,14 @@ class Agent:
                 msg["images"] = images_b64[-1:]
                 raw=self._call(
                     [{"role":"system","content":system},msg],
-                    model, 4.0, 56, 896, think=False
+                    model, 5.5 if profile=="jjs" else 4.0,
+                    120 if profile=="jjs" else 56,
+                    1024, think=False
                 )
 
             result=self._normalize(self._parse(raw))
+            if profile=="jjs":
+                result=self._normalize_jjs_target(result)
 
             fixed=[]
             for action in (result.get("actions") or [])[:2]:
