@@ -993,7 +993,7 @@ class NariApp:
         obs=str(result.get("observation","") or "").strip().lower()
         note=str(result.get("decision_note","") or "").strip().lower()
         blob=" ".join((name,obs,note))
-        terms=("enemy","opponent","rival","player","enemigo","jugador","oponente","adversario","avatar")
+        terms=("enemy","opponent","rival","enemigo","oponente","adversario")
         explicit=any(t in blob for t in terms)
 
         if explicit:
