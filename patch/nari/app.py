@@ -1590,11 +1590,11 @@ class NariApp:
     def _emergency_stop_core(self):
         self.game_running=False
         self._stop_jjs_camera_controller()
+        try: self.computer.stop()
+        except Exception: pass
         try: self.computer.release_all()
         except Exception: pass
         try: self.agent.stop()
-        except Exception: pass
-        try: self.computer.stop()
         except Exception: pass
         try:
             if self.learning_enabled:
