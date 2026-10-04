@@ -1,0 +1,7 @@
+NARI 5.5.13
+
+- Reworked JJS camera tracking into smooth bounded turn segments instead of frequent micro-corrections.
+- Added eased mouse-delta interpolation so camera movement accelerates and decelerates naturally.
+- Added a visual observation window after each camera correction before another correction is issued.
+- Removed automatic per-frame camera direction inversion that could cause left-right oscillation.
+- Kept target tracking limited to visible, confidence-backed targets.
