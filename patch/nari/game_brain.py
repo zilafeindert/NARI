@@ -214,7 +214,7 @@ class GameBrain:
             ]
             for offset in range(len(pool)):
                 action = pool[(idx + offset) % len(pool)]
-                key = self.learner.action_key(action)
+                key = self.learner.action_key(action, self.profile)
                 if not self._is_bad_repeat(key, 0.0):
                     return self.validate_action(action, commit=False)
             return self.validate_action(pool[idx % len(pool)], commit=False)
@@ -238,7 +238,7 @@ class GameBrain:
             # Busqueda circular por una accion que no aparezca recientemente.
             for offset in range(len(pool)):
                 action = pool[(idx + offset) % len(pool)]
-                key = self.learner.action_key(action)
+                key = self.learner.action_key(action, self.profile)
                 if not self._is_bad_repeat(key, 0.0):
                     return self.validate_action(action, commit=False)
             return self.validate_action(pool[idx % len(pool)], commit=False)
