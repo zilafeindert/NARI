@@ -299,7 +299,8 @@ class Agent:
         )
 
         enemy_terms=(
-            "enemy","opponent","rival","enemigo","oponente","adversario"
+            "enemy","opponent","rival","foe","hostile","adversary",
+            "enemigo","oponente","adversario","jugador enemigo","enemy player"
         )
         human_explicit=(not dummy and any(term in blob for term in enemy_terms))
 
@@ -399,16 +400,14 @@ class Agent:
             "NO imprimas esa cadena de pensamiento. Entrega solo un resumen operativo. "
             "Tu trabajo es tomar decisiones utiles, variadas y verificables; no repitas "
             "automaticamente la ultima accion. "
-            "Devuelve SOLO JSON valido: "
+            "Devuelve SOLO JSON valido y compacto. En JJS prioriza adquisicion de objetivo sobre narracion. "
             '{"target_visible":false,"target_is_dummy":false,"target_name":"","target_center_x":0.5,'
-            '"target_center_y":0.5,"target_distance":0.75,"confidence":0.0,'
+            '"target_center_y":0.5,"confidence":0.0,"target_distance":0.75,'
             '"opponent_attacking":false,"target_stunned":false,"target_blocking":false,'
             '"player_stunned":false,"player_ragdolled":false,"player_dead":false,'
-            '"hit_confirmed":false,"block_success":false,"ability_confirmed":false,'
-            '"ability_whiff":false,"cooldown_active":false,"ko_confirmed":false,'
-            '"enemy_health_delta":0.0,"player_health_delta":0.0,"aim_alignment_delta":0.0,'
-            '"target_distance_delta":0.0,"action_effect":0.0,"progress_delta":0.0,'
-            '"actions":[{"type":"..."}],"observation":"...","goal_state":"...","decision_note":"..."}. '
+            '"hit_confirmed":false,"ability_whiff":false,"cooldown_active":false,'
+            '"target_distance_delta":0.0,"aim_alignment_delta":0.0,'
+            '"actions":[{"type":"..."}],"observation":"...","decision_note":"..."}. '
             "actions debe contener 1 o 2 acciones candidatas ordenadas por preferencia; "
             "el controlador local ejecutara SOLO UNA. "
             "Acciones permitidas: hold(key=w/a/s/d,seconds), block(seconds), m1(seconds), advance_m1(seconds), "
@@ -439,21 +438,16 @@ class Agent:
                 "que elemento visible es relevante y propone hasta dos microacciones. "
                 "La primera debe ser la mejor; la segunda una alternativa util y distinta. "
                 "Evalua tambien la accion anterior. "
-                "En JJS informa hit_confirmed, block_success, ko_confirmed, death_or_ko, ability_whiff, "
-                "ability_confirmed, cooldown_active, enemy_health_delta, player_health_delta, target_visible, "
-                "target_center_x, target_center_y, target_distance, target_distance_delta y aim_alignment_delta "
-                "cuando puedas. Informa tambien target_stunned, target_blocking, opponent_attacking, "
-                "player_stunned, player_ragdolled, player_dead, target_health_percent y player_health_percent "
-                "si hay evidencia visual. Los deltas de vida: negativo significa perdida de vida. "
-                "target_center_y: 0.0=arriba y 1.0=abajo. target_distance: 0.0=muy cerca y 1.0=muy lejos. "
-                "target_distance_delta: negativo significa que se acerco. aim_alignment_delta: positivo "
-                "significa que el objetivo quedo mas centrado. target_is_dummy=true solo con evidencia del Dummy. "
-                "En JJS, si aparece un avatar/personaje enemigo, target_visible DEBE ser true y target_is_dummy=false; "
-                "target_name debe ser enemy, opponent o player si no conoces el nombre; target_center_x/y deben ser el "
-                "centro aproximado del torso en 0..1. Ignora el avatar propio, HUD, texto y decoracion. Si hay varios "
-                "enemigos, elige el enemigo vivo mas claro y cercano. No dejes fuera la telemetria del objetivo aunque "
-                "no tengas datos de vida o combate. No inventes impactos, daño, bloqueo ni estados; compara los fotogramas "
-                "cuando sea posible. Da prioridad a adquirir un objetivo de combate antes que a describir la escena."
+                "En JJS solo necesitas esta telemetria esencial: target_visible, target_is_dummy, target_name, "
+                "target_center_x/y, target_distance, confidence, opponent_attacking, target_stunned, target_blocking, "
+                "player_stunned, player_ragdolled, player_dead, hit_confirmed, ability_whiff, cooldown_active, "
+                "target_distance_delta, aim_alignment_delta y actions. No inventes datos faltantes. "
+                "Si aparece cualquier avatar/personaje enemigo distinto del jugador propio, target_visible DEBE ser true, "
+                "target_is_dummy=false y target_name debe ser enemy/opponent/foe; usa el centro aproximado del torso en 0..1. "
+                "Si no conoces la identidad exacta, eso NO es razon para devolver target_visible=false. "
+                "Ignora el avatar propio, HUD, texto y decoracion. Si hay varios enemigos, elige el enemigo vivo mas claro y cercano. "
+                "target_is_dummy=true solo con evidencia del Dummy. target_center_y: 0=arriba y 1=abajo. "
+                "target_distance: 0=muy cerca y 1=muy lejos. Da prioridad absoluta a adquirir un objetivo antes que a describir la escena."
             ),
             "images":images_b64,
         }
@@ -465,9 +459,9 @@ class Agent:
             try:
                 raw=self._call(
                     [{"role":"system","content":system},msg],
-                    model, 6.5 if profile=="jjs" else 5.5,
-                    160 if profile=="jjs" else 72,
-                    1152, think=False
+                    model, 3.5 if profile=="jjs" else 5.5,
+                    96 if profile=="jjs" else 72,
+                    1024, think=False
                 )
             except Exception as first_error:
                 # Recuperacion: algunos builds/modelos visuales fallan con varias
@@ -475,9 +469,9 @@ class Agent:
                 msg["images"] = images_b64[-1:]
                 raw=self._call(
                     [{"role":"system","content":system},msg],
-                    model, 5.5 if profile=="jjs" else 4.0,
-                    120 if profile=="jjs" else 56,
-                    1024, think=False
+                    model, 2.8 if profile=="jjs" else 4.0,
+                    80 if profile=="jjs" else 56,
+                    896 if profile=="jjs" else 1024, think=False
                 )
 
             result=self._normalize(self._parse(raw))
