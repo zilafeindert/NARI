@@ -1129,8 +1129,8 @@ class NariApp:
 
         try:
             confidence=max(0.0,min(1.0,float(result.get("confidence",0.0) or 0.0)))
-            cx=max(0.0,min(1.0,float(result.get("target_center_x"))))
-            cy=max(0.0,min(1.0,float(result.get("target_center_y"))))
+            cx=max(0.0,min(1.0,float(result.get("target_center_x",0.5) or 0.5)))
+            cy=max(0.0,min(1.0,float(result.get("target_center_y",0.5) or 0.5)))
         except Exception:
             self.jjs_vlm_dummy_hits=0
             return False
