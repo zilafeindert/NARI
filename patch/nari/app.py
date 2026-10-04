@@ -77,7 +77,6 @@ class NariApp:
         self.busy = False
         self.game_running = False
         self.game_cycle = 0
-        self.last_game_action_ts = 0.0
         self.learning_enabled = bool(self.settings.get("learning_enabled", True))
         self.developer = tk.BooleanVar(value=False)
         self.free_var = tk.BooleanVar(value=self.settings.get("talk_when_idle", False))
@@ -86,7 +85,6 @@ class NariApp:
         self.auto_var = tk.BooleanVar(value=self.settings.get("game_autonomy", False))
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.computer.set_host_window(self.root.winfo_id())
-        self.game_infer_lock = threading.Lock()
         self.game_target_title = ""
 
         self.jjs_dummy_center_smooth = None
