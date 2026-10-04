@@ -860,38 +860,21 @@ class NariApp:
 
                 # Respaldo local: si la percepción VLM está atrasada, el Dummy
                 # todavía puede provocar movimiento/ataque sin quedarse congelado.
-                if centered and now-self.jjs_last_dummy_action_ts>=0.24:
-                    # El marcador verde puede mantener un tamaño casi constante;
-                    # no lo usamos como unica prueba de rango. Tras 4 microacercamientos
-                    # el controlador entra en ataque y prueba M1 de forma determinista.
-                    if distance<=0.60 or self.jjs_dummy_approach_count>=4:
-                        self.jjs_dummy_attack_mode=True
-
-                    if not self.jjs_dummy_attack_mode:
-                        try:
-                            exec_result=self.computer.act({"type":"hold","key":"w","seconds":0.16})
-                            if str(exec_result)=="OK":
-                                self.jjs_dummy_approach_count+=1
-                                self.jjs_last_dummy_action_ts=time.monotonic()
-                                self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
-                            else:
-                                self._status("⚠️ Dummy W: "+str(exec_result)[:90])
-                        except Exception as exc:
-                            self._status("⚠️ Dummy W: "+str(exc)[:90])
-                        continue
-
-                    if now-self.jjs_last_attack_ts>=0.24:
-                        try:
-                            exec_result=self.computer.act({"type":"m1","seconds":0.055})
-                            if str(exec_result)=="OK":
-                                self.jjs_last_attack_ts=time.monotonic()
-                                self.jjs_last_dummy_action_ts=self.jjs_last_attack_ts
-                                self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
-                            else:
-                                self._status("⚠️ Dummy M1: "+str(exec_result)[:90])
-                        except Exception as exc:
-                            self._status("⚠️ Dummy M1: "+str(exc)[:90])
-                        continue
+                if centered and now-self.jjs_last_dummy_action_ts>=0.22:
+                    # Una sola accion: avanzar hacia el Dummy y golpear con M1 simultaneamente.
+                    try:
+                        exec_result=self.computer.act({"type":"advance_m1","seconds":0.11})
+                        if str(exec_result)=="OK":
+                            self.jjs_dummy_approach_count+=1
+                            self.jjs_dummy_attack_mode=True
+                            self.jjs_last_attack_ts=time.monotonic()
+                            self.jjs_last_dummy_action_ts=self.jjs_last_attack_ts
+                            self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
+                        else:
+                            self._status("⚠️ Dummy W+M1: "+str(exec_result)[:90])
+                    except Exception as exc:
+                        self._status("⚠️ Dummy W+M1: "+str(exc)[:90])
+                    continue
 
                 if not centered and now-self.jjs_camera_last_move_ts>=0.18:
                     ex=smooth[0]-0.5
@@ -1173,8 +1156,8 @@ class NariApp:
 
         if distance<=0.56:
             self.jjs_combat_phase="engage"
-            # Dummy: una vez confirmado un golpe, permite que el VLM extienda el combo.
-            # Humano: la accion VLM pasara por el filtro del loop para leer su apertura.
+            if is_dummy and now-self.jjs_last_attack_ts>=0.22:
+                return {"type":"advance_m1","seconds":0.11}, "combat-advance-m1"
             return None, "combat-engage"
 
         self.jjs_combat_phase="neutral"
@@ -1481,22 +1464,9 @@ class NariApp:
                     td=0.82
 
                 centered=abs(tx-0.5)<=0.070 and abs(ty-0.5)<=0.085
-                if centered:
-                    if td<=0.60 or self.jjs_dummy_approach_count>=4:
-                        self.jjs_dummy_attack_mode=True
-                    if (
-                        not self.jjs_dummy_attack_mode
-                        and time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)>=0.18
-                    ):
-                        forced_action={"type":"hold","key":"w","seconds":0.18}
-                        forced_source="target-approach"
-                    elif (
-                        self.jjs_dummy_attack_mode
-                        and time.monotonic()-getattr(self,"jjs_last_attack_ts",-10.0)>=0.18
-                        and not bool(result.get("cooldown_active",False))
-                    ):
-                        forced_action={"type":"m1","seconds":0.055}
-                        forced_source="target-attack"
+                if centered and time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)>=0.18:
+                    forced_action={"type":"advance_m1","seconds":0.11}
+                    forced_source="target-advance-m1"
 
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
