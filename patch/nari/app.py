@@ -694,9 +694,6 @@ class NariApp:
                 self.agent.game_learner.end_session()
             except Exception:
                 pass
-        with self.game_action_lock:
-            self.game_recommended_actions=[]
-            self.game_recommendation_ts=0.0
         self.game_status.set("Detenido")
         self.game_learning_status.set("Aprendizaje: sesión guardada")
         self._status("🎮 Juego detenido")
