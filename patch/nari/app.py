@@ -17,6 +17,7 @@ from .personality import SELF_KEYS, PEOPLE_KEYS
 from .stt import VoiceListener
 from .tts import TTS
 from .vision import ScreenVideo, PeopleVision
+from .target_detector import JJSObjectDetector
 from .web import search as web_search
 from .updater import APP_VERSION, check as check_updates, _is_newer
 
@@ -116,6 +117,15 @@ class NariApp:
         self.jjs_vlm_worker = None
         self.jjs_vlm_prev_action = "ninguna"
         self.jjs_vlm_state = ""
+        self.jjs_vlm_result_kind = "think"
+        self.jjs_vlm_scan_result = None
+        self.jjs_vlm_scan_ts = 0.0
+        self.jjs_last_think_ts = 0.0
+        self.jjs_detector = JJSObjectDetector(MODELS / "vision", DATA / "jjs_detector")
+        self.jjs_detector_thread = None
+        self.jjs_detector_status = "no iniciado"
+        self.jjs_local_enemy_target = None
+        self.jjs_local_enemy_target_ts = 0.0
         self.jjs_last_recovery_action_ts = 0.0
         self.jjs_recovery_cursor = 0
         self.jjs_dummy_fallback_action_ts = 0.0
@@ -589,8 +599,11 @@ class NariApp:
         )
         if profile == "jjs":
             goal += (
-                "\nPRIORIDAD JJS: localiza el Dummy de entrenamiento, "
-                "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
+                "\nPRIORIDAD JJS: busca rivales humanos y el Dummy si estás en entrenamiento. "
+                "Distingue tu avatar de los oponentes, sigue un objetivo estable y centra su torso. "
+                "Acércate con presión de M1 cuando sea razonable; interpreta ataques, bloqueos, stun, "
+                "cooldown y oportunidades para habilidades antes de cambiar de estrategia. "
+                "Usa continuidad entre fotogramas y evita repetir secuencias sin evidencia."
             )
         self.game_target_title=title
 
@@ -621,6 +634,13 @@ class NariApp:
         self.jjs_vlm_worker=None
         self.jjs_vlm_prev_action="ninguna"
         self.jjs_vlm_state=""
+        self.jjs_vlm_result_kind="think"
+        self.jjs_vlm_scan_result=None
+        self.jjs_vlm_scan_ts=0.0
+        self.jjs_last_think_ts=0.0
+        self.jjs_local_enemy_target=None
+        self.jjs_local_enemy_target_ts=0.0
+        self.jjs_detector_status=str(getattr(self.jjs_detector,"status","no iniciado"))
         self.jjs_last_recovery_action_ts=0.0
         self.jjs_recovery_cursor=0
         self.jjs_dummy_fallback_action_ts=0.0
@@ -658,11 +678,17 @@ class NariApp:
         self.game_running=True
         if profile == "jjs":
             self._start_jjs_camera_controller()
+            self.jjs_detector_thread=threading.Thread(
+                target=self._jjs_detector_loop,
+                daemon=True,
+                name="NARI-JJS-detector",
+            )
+            self.jjs_detector_thread.start()
             self.jjs_vlm_worker=threading.Thread(
                 target=self._jjs_vlm_worker_loop,
                 args=(goal,),
                 daemon=True,
-                name="NARI-JJS-vlm",
+                name="NARI-JJS-brain",
             )
             self.jjs_vlm_worker.start()
 
@@ -1005,37 +1031,117 @@ class NariApp:
 
             time.sleep(0.025)
 
-    def _jjs_vlm_worker_loop(self, goal):
-        """Percepcion VLM JJS desacoplada del bucle de entradas."""
-        interval=1.0/max(1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0))
-        next_ts=0.0
+    def _jjs_detector_loop(self):
+        """Detector local independiente; continúa incluso cuando Ollama razona."""
+        last_status=""
         while self.game_running:
-            now=time.monotonic()
-            if now < next_ts:
-                time.sleep(min(0.04,max(0.005,next_ts-now)))
-                continue
+            try:
+                if self.jjs_detector.model is None:
+                    self.jjs_detector.initialize()
+                    self.jjs_detector_status=str(self.jjs_detector.status)
+                    if self.jjs_detector_status!=last_status:
+                        last_status=self.jjs_detector_status
+                        self._status("👁 JJS detector: "+last_status[:110])
+                    if self.jjs_detector.model is None:
+                        time.sleep(0.70)
+                        continue
 
+                frame=self.screen.latest_game()
+                if frame is None:
+                    time.sleep(0.04)
+                    continue
+
+                now=time.monotonic()
+                with self.jjs_camera_state_lock:
+                    previous=(
+                        self.jjs_local_enemy_target.copy()
+                        if isinstance(self.jjs_local_enemy_target,dict)
+                        and now-self.jjs_local_enemy_target_ts<=0.65
+                        else None
+                    )
+
+                candidate=self.jjs_detector.detect(frame, previous=previous)
+                with self.jjs_camera_state_lock:
+                    if candidate is not None:
+                        candidate["seen_ts"]=now
+                        self.jjs_local_enemy_target=candidate
+                        self.jjs_local_enemy_target_ts=now
+                        self.jjs_detector_status=str(self.jjs_detector.status)
+                    elif now-self.jjs_local_enemy_target_ts>0.42:
+                        self.jjs_local_enemy_target=None
+                        self.jjs_local_enemy_target_ts=0.0
+                        self.jjs_detector_status=str(self.jjs_detector.status)
+
+                time.sleep(0.12)
+            except Exception as exc:
+                self.jjs_detector_status="error: "+str(exc)[:150]
+                time.sleep(0.35)
+
+    def _jjs_vlm_worker_loop(self, goal):
+        """Alterna percepción breve y razonamiento táctico sin bloquear las entradas."""
+        last_think_ts=0.0
+        while self.game_running:
+            started=time.monotonic()
             imgs,latest=self.screen.image_bytes(
                 2,
                 max_width=int(self.settings.get("game_analysis_width",640))
             )
             if not imgs or latest is None:
-                next_ts=now+0.08
+                time.sleep(0.08)
                 continue
 
             with self.jjs_camera_state_lock:
                 previous_action=str(self.jjs_vlm_prev_action or "ninguna")
                 state_key=str(self.jjs_vlm_state or "")
+                local_target=(
+                    self.jjs_local_enemy_target.copy()
+                    if isinstance(self.jjs_local_enemy_target,dict)
+                    and time.monotonic()-self.jjs_local_enemy_target_ts<=0.45
+                    else None
+                )
+
+            now=time.monotonic()
+            inference_fps=max(1.0,float(self.settings.get("game_inference_fps",6.0) or 6.0))
+            think_interval=max(1.35,min(2.25,1.0/min(2.0,inference_fps)))
+            should_think=(
+                (local_target is not None and now-last_think_ts>=think_interval)
+                or now-last_think_ts>=2.35
+            )
 
             self.jjs_vlm_busy=True
+            mode="think" if should_think else "scan"
             try:
-                result=self.agent.jjs_target_scan(imgs)
+                if should_think:
+                    if local_target is not None:
+                        sensor_note=(
+                            "\nSENSOR LOCAL YOLO (prioridad espacial): detecté un avatar probable "
+                            f"en x={float(local_target.get('center_x',0.5)):.3f}, "
+                            f"y={float(local_target.get('center_y',0.5)):.3f}, "
+                            f"distancia_aprox={float(local_target.get('distance',0.75)):.2f}, "
+                            f"confianza_detector={float(local_target.get('confidence',0.0)):.2f}. "
+                            "Usa la imagen y este sensor juntos; si el sensor parece ser tu propio avatar, "
+                            "recházalo. Decide la siguiente acción táctica, no repitas una secuencia sin evidencia."
+                        )
+                    else:
+                        sensor_note=(
+                            "\nSENSOR LOCAL YOLO: no hay una detección humana estable ahora mismo. "
+                            "Busca rivales, distingue el avatar propio y propón una búsqueda táctica breve."
+                        )
+                    result=self.agent.vision(
+                        goal+sensor_note,
+                        imgs,
+                        profile="jjs",
+                        previous_action=previous_action,
+                        state_key=state_key,
+                    )
+                else:
+                    result=self.agent.jjs_target_scan(imgs)
             except Exception as exc:
                 result={
                     "actions":[],
                     "reply":"",
                     "observation":"",
-                    "decision_note":"VLM no disponible",
+                    "decision_note":"fallo de percepción/razonamiento; usar control local",
                     "confidence":0.0,
                     "error":str(exc),
                 }
@@ -1043,15 +1149,71 @@ class NariApp:
                 self.jjs_vlm_busy=False
 
             if not isinstance(result,dict):
-                result={"actions":[],"confidence":0.0,"error":"resultado VLM invalido"}
+                result={"actions":[],"confidence":0.0,"error":"resultado VLM inválido"}
 
             stamp=time.monotonic()
+            result["_nari_mode"]=mode
+            result["_nari_elapsed"]=stamp-started
             with self.jjs_camera_state_lock:
-                self.jjs_vlm_result=dict(result)
-                self.jjs_vlm_result_ts=stamp
-                self.jjs_last_vlm_ts=stamp
+                if mode=="think":
+                    self.jjs_vlm_result=dict(result)
+                    self.jjs_vlm_result_ts=stamp
+                    self.jjs_vlm_result_kind="think"
+                    self.jjs_last_think_ts=stamp
+                    self.jjs_last_vlm_ts=stamp
+                else:
+                    self.jjs_vlm_scan_result=dict(result)
+                    self.jjs_vlm_scan_ts=stamp
 
-            next_ts=stamp+interval
+            time.sleep(0.045)
+
+    def _jjs_apply_local_enemy_target(self, result):
+        """Fusiona detección local actual en telemetría para cámara, combate y aprendizaje."""
+        if not isinstance(result,dict) or bool(result.get("target_is_dummy",False)):
+            return False
+
+        now=time.monotonic()
+        with self.jjs_camera_state_lock:
+            target=(
+                self.jjs_local_enemy_target.copy()
+                if isinstance(self.jjs_local_enemy_target,dict)
+                else None
+            )
+            age=now-self.jjs_local_enemy_target_ts if self.jjs_local_enemy_target_ts>0 else 999.0
+        if target is None or age>0.42:
+            return False
+
+        try:
+            cx=max(0.0,min(1.0,float(target.get("center_x",0.5))))
+            cy=max(0.0,min(1.0,float(target.get("center_y",0.5))))
+            distance=max(0.0,min(1.0,float(target.get("distance",0.75)))
+            detector_conf=max(0.0,min(1.0,float(target.get("confidence",0.0))))
+        except Exception:
+            return False
+
+        result["target_visible"]=True
+        result["target_is_dummy"]=False
+        result["target_name"]="enemy"
+        result["target_center_x"]=cx
+        result["target_center_y"]=cy
+        result["target_distance"]=distance
+        try:
+            prior_conf=float(result.get("confidence",0.0) or 0.0)
+        except Exception:
+            prior_conf=0.0
+        result["confidence"]=max(prior_conf,0.62+0.25*detector_conf)
+        result["target_source"]="yolo-person"
+        result["target_bbox"]=[
+            target.get("x1",cx),target.get("y1",cy),
+            target.get("x2",cx),target.get("y2",cy),
+        ]
+        if target.get("distance_delta") is not None:
+            result["target_distance_delta"]=float(target["distance_delta"])
+        if target.get("aim_alignment_delta") is not None:
+            result["aim_alignment_delta"]=float(target["aim_alignment_delta"])
+        result["detector_confidence"]=detector_conf
+        result["detector_age"]=age
+        return True
 
     def _jjs_search_camera_pulse(self):
         now=time.monotonic()
@@ -1457,8 +1619,11 @@ class NariApp:
         goal = self.game_goal.get().strip() or "Explora el juego, aprende los controles y completa objetivos visibles."
         if profile == "jjs":
             goal += (
-                "\nPRIORIDAD JJS: localiza el Dummy de entrenamiento, "
-                "mantenlo visible y centrado, acércate y usa M1 cuando esté a distancia de ataque."
+                "\nPRIORIDAD JJS: busca rivales humanos y el Dummy si estás en entrenamiento. "
+                "Distingue tu avatar de los oponentes, sigue un objetivo estable y centra su torso. "
+                "Acércate con presión de M1 cuando sea razonable; interpreta ataques, bloqueos, stun, "
+                "cooldown y oportunidades para habilidades antes de cambiar de estrategia. "
+                "Usa continuidad entre fotogramas y evita repetir secuencias sin evidencia."
             )
         previous_action = None
         previous_state = ""
@@ -1518,33 +1683,46 @@ class NariApp:
             now_loop=time.monotonic()
             if profile=="jjs":
                 with self.jjs_camera_state_lock:
-                    latest_result=(
-                        dict(self.jjs_vlm_result)
-                        if isinstance(self.jjs_vlm_result,dict)
-                        else None
-                    )
-                    vlm_age=(
+                    thought=dict(self.jjs_vlm_result) if isinstance(self.jjs_vlm_result,dict) else None
+                    thought_age=(
                         now_loop-float(self.jjs_vlm_result_ts)
-                        if self.jjs_vlm_result_ts>0
-                        else 999.0
+                        if self.jjs_vlm_result_ts>0 else 999.0
                     )
-                if latest_result is None:
+                    scan=dict(self.jjs_vlm_scan_result) if isinstance(self.jjs_vlm_scan_result,dict) else None
+                    scan_age=(
+                        now_loop-float(self.jjs_vlm_scan_ts)
+                        if self.jjs_vlm_scan_ts>0 else 999.0
+                    )
+
+                if thought is not None and thought_age<=3.6:
+                    result=thought
+                    result["_vlm_age"]=thought_age
+                    if (
+                        scan is not None and scan_age<=2.4
+                        and bool(scan.get("target_visible",False))
+                        and scan_age < thought_age
+                    ):
+                        for key in (
+                            "target_visible","target_is_dummy","target_center_x",
+                            "target_center_y","target_distance","target_name","confidence"
+                        ):
+                            if key in scan:
+                                result[key]=scan[key]
+                        result["_scan_age"]=scan_age
+                elif scan is not None and scan_age<=2.8:
+                    result=scan
+                    result["_vlm_age"]=scan_age
+                    result["_nari_mode"]="scan"
+                else:
                     result={
                         "actions":[],
                         "target_visible":False,
                         "confidence":0.0,
                         "observation":"buscando objetivo",
-                        "decision_note":"VLM inicializando",
+                        "decision_note":"esperando percepción",
                         "error":"vlm-pending",
+                        "_vlm_age":999.0,
                     }
-                else:
-                    result=latest_result
-                    result["_vlm_age"]=vlm_age
-                    if vlm_age>0.90:
-                        # Una lectura VLM vieja no debe gobernar el combate indefinidamente.
-                        result["target_visible"]=False
-                        result["actions"]=[]
-                        result["decision_note"]="lectura VLM obsoleta; reacquisicion"
             else:
                 if now_loop < next_vlm_ts:
                     time.sleep(min(0.03,max(0.005,next_vlm_ts-now_loop)))
@@ -1574,7 +1752,9 @@ class NariApp:
                     local_dummy=self._jjs_vlm_dummy_fallback(result)
                     marker_stable=marker_stable or local_dummy
 
+            local_yolo=False
             if profile=="jjs" and not local_dummy:
+                local_yolo=self._jjs_apply_local_enemy_target(result)
                 result=self._jjs_normalize_human_target(result)
 
             # Recompensa estricta para la accion anterior.
@@ -1829,6 +2009,16 @@ class NariApp:
                     )
                     _vlm_busy=bool(self.jjs_vlm_busy)
                     _raw_vlm=self.jjs_vlm_result.copy() if isinstance(self.jjs_vlm_result,dict) else {}
+                    _local_target=self.jjs_local_enemy_target.copy() if isinstance(self.jjs_local_enemy_target,dict) else None
+                    _local_target_age=(
+                        time.monotonic()-self.jjs_local_enemy_target_ts
+                        if self.jjs_local_enemy_target_ts>0 else 999.0
+                    )
+                if _target_kind=="none" and _local_target is not None and _local_target_age<=0.45:
+                    _target_kind="yolo-person"
+                    _target_cx=float(_local_target.get("center_x",0.50))
+                    _target_cy=float(_local_target.get("center_y",0.50))
+                    _target_dist=float(_local_target.get("distance",0.75))
                 if _target_kind=="none" and bool(_raw_vlm.get("target_visible",False)):
                     _target_kind="vlm-human"
                     _target_cx=float(_raw_vlm.get("target_center_x",0.50) or 0.50)
@@ -1837,6 +2027,7 @@ class NariApp:
                     f" • target={_target_kind} "
                     f"({(_target_cx):.2f},{(_target_cy):.2f}) d={_target_dist:.2f}"
                     f" • vlm={_vlm_age:.1f}s{'*' if _vlm_busy else ''}"
+                    f" • det={self.jjs_detector_status[:22]}"
                 )
             else:
                 target_debug = ""
