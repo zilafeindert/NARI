@@ -203,6 +203,7 @@ class GameBrain:
                 {"type": "hold", "key": "a", "seconds": 0.18},
                 {"type": "hold", "key": "d", "seconds": 0.18},
                 {"type": "m1", "seconds": 0.045},
+                {"type": "advance_m1", "seconds": 0.11},
                 {"type": "press", "key": "q"},
                 {"type": "block", "seconds": 0.30},
                 {"type": "press", "key": "1"},
