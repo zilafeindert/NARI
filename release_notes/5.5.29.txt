@@ -1,0 +1,13 @@
+NARI 5.5.29
+
+JJS local vision + tactical reasoning + real training workflow.
+
+- Added an optional local YOLO avatar detector with temporal tracking, self-avatar rejection heuristics, target coordinates and approximate range.
+- The local detector runs independently of Ollama so visual reasoning latency cannot pause detection or game inputs.
+- Restored the full tactical VLM reasoning loop alongside the compact target scanner; scan outputs no longer overwrite the thinker's action suggestions.
+- Corrected target-result freshness handling: normal multi-second vision inference is no longer invalidated after 0.9 seconds.
+- Local target telemetry feeds camera tracking, combat decisions and persistent reward-based policy learning.
+- Added F9 to save real JJS screenshots for detector training.
+- Added a labeling and fine-tuning workflow that trains a custom enemy detector from real annotated JJS captures.
+- Added optional one-time detector installation and a separate training launcher.
+- Preserves VLM-only fallback when the local detector package is not installed.
