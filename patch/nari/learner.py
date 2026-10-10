@@ -16,6 +16,7 @@ DEFAULT_ACTIONS = {
         "hold_d",
         "hold_s",
         "m1",
+        "advance_m1",
         "press_1",
         "press_2",
         "press_3",
@@ -493,7 +494,7 @@ class GameLearner:
             score-=min(0.35,0.075*(stagnation-1))
 
         # Ataques sin objetivo visible son experimentos caros.
-        if key in {"m1","press_1","press_2","press_3","press_4","special_r","awaken_g"}:
+        if key in {"m1","advance_m1","press_1","press_2","press_3","press_4","special_r","awaken_g"}:
             if not target_visible:
                 score-=0.26
 
