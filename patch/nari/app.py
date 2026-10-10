@@ -1186,7 +1186,7 @@ class NariApp:
         try:
             cx=max(0.0,min(1.0,float(target.get("center_x",0.5))))
             cy=max(0.0,min(1.0,float(target.get("center_y",0.5))))
-            distance=max(0.0,min(1.0,float(target.get("distance",0.75)))
+            distance=max(0.0,min(1.0,float(target.get("distance",0.75))))
             detector_conf=max(0.0,min(1.0,float(target.get("confidence",0.0))))
         except Exception:
             return False
@@ -1856,18 +1856,24 @@ class NariApp:
                 # Si hay Dummy centrado y ya hubo un impacto confirmado, una habilidad
                 # candidata puede continuar la secuencia; asi el Dummy sirve tambien
                 # para aprender rutas de combo, no solo M1.
+                # El razonador puede tomar el relevo del M1 basico cuando el
+                # objetivo esta aturdido o se confirma una pequeña ventana de combo.
+                opening=bool(result.get("target_stunned",False)) or (
+                    self.jjs_confirmed_hits>=2 and bool(result.get("hit_confirmed",False))
+                )
                 if (
-                    local_dummy
-                    and tactical_action is None
-                    and self.jjs_confirmed_hits>=1
+                    local_visible
+                    and opening
                     and not bool(result.get("cooldown_active",False))
+                    and time.monotonic()-self.jjs_last_tactical_ts>=0.48
                 ):
                     for candidate in candidates:
                         kind=str(candidate.get("type","")).lower()
                         key=str(candidate.get("key","")).lower()
                         if kind=="press" and key in {"1","2","3","4","r"}:
                             tactical_action=candidate
-                            tactical_source="dummy-combo-extension"
+                            tactical_source="thinker-opening-skill"
+                            self.jjs_last_tactical_ts=time.monotonic()
                             self.jjs_confirmed_hits=0
                             break
 
@@ -1897,6 +1903,7 @@ class NariApp:
                     + f"|stun{bit('target_stunned')}"
                     + f"|pstun{bit('player_stunned')}"
                     + f"|cd{bit('cooldown_active')}"
+                    + f"|src{'y' if result.get('target_source')=='yolo-person' else 'v' if result.get('target_visible') else 'n'}"
                 )
             if forced_action is not None:
                 action=self.agent.game_validate_action(forced_action)
