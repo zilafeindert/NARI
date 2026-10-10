@@ -626,6 +626,31 @@ class NariApp:
             messagebox.showwarning("Juego", "No encontré la ventana del juego. Ábrela y pulsa JUGAR de nuevo.")
             return
 
+        if profile=="jjs":
+            try:
+                import importlib.util
+                detector_installed=importlib.util.find_spec("ultralytics") is not None
+            except Exception:
+                detector_installed=False
+            install_script=ROOT/"NARI_JJS_DETECTOR_INSTALAR.bat"
+            if not detector_installed and install_script.exists():
+                install=messagebox.askyesno(
+                    "Detector visual JJS",
+                    "NARI puede instalar un detector local de avatares para mejorar la adquisición de enemigos. "
+                    "Necesita descargar dependencias de visión/PyTorch y el modelo base, por lo que ocupa bastante espacio. "
+                    "¿Iniciar la instalación ahora?\n\nPuedes seguir usando el respaldo VLM si eliges No."
+                )
+                if install:
+                    try:
+                        subprocess.Popen(
+                            ["cmd","/c",str(install_script)],
+                            cwd=str(ROOT),
+                            creationflags=getattr(subprocess,"CREATE_NEW_CONSOLE",0),
+                        )
+                        self._status("Instalando detector JJS en segundo plano; el respaldo VLM sigue activo.")
+                    except Exception as exc:
+                        self._status("No pude abrir el instalador: "+str(exc)[:120])
+
         goal=self.game_goal.get().strip() or (
             "Explora el juego, aprende sus controles y completa objetivos visibles."
         )
