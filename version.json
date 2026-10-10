@@ -1,8 +1,8 @@
 {
-  "version": "5.5.28",
-  "tag": "v5.5.28",
+  "version": "5.5.29",
+  "tag": "v5.5.29",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-acquisition-30"
+  "release_build": "jjs-local-vision-reasoning-learning-31"
 }
