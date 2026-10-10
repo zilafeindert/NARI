@@ -126,6 +126,7 @@ class NariApp:
         self.jjs_detector_status = "no iniciado"
         self.jjs_local_enemy_target = None
         self.jjs_local_enemy_target_ts = 0.0
+        self.jjs_dataset_last_save_ts = 0.0
         self.jjs_last_recovery_action_ts = 0.0
         self.jjs_recovery_cursor = 0
         self.jjs_dummy_fallback_action_ts = 0.0
@@ -154,20 +155,51 @@ class NariApp:
         try:
             import ctypes
             VK_F8 = 0x77
+            VK_F9 = 0x78
             was_down = False
+            was_f9_down = False
             while getattr(self, "global_hotkey_running", False):
                 down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_F8) & 0x8000)
+                f9_down = bool(ctypes.windll.user32.GetAsyncKeyState(VK_F9) & 0x8000)
                 if down and not was_down and self.game_running:
                     self._emergency_stop_core()
                     try:
                         self.root.after(0, lambda: self._status("🛑 F8 • juego detenido"))
                     except Exception:
                         pass
+                if (
+                    f9_down and not was_f9_down and self.game_running
+                    and str(self.settings.get("game_profile",""))=="jjs"
+                ):
+                    self._capture_jjs_training_frame()
                 was_down = down
+                was_f9_down = f9_down
                 time.sleep(0.035)
         except Exception as exc:
             try: self._status("F8 global: "+str(exc))
             except Exception: pass
+
+    def _capture_jjs_training_frame(self):
+        """F9 guarda una captura real de la ventana de JJS para etiquetado posterior."""
+        now=time.monotonic()
+        if now-self.jjs_dataset_last_save_ts<0.35:
+            return
+        self.jjs_dataset_last_save_ts=now
+        try:
+            frame=self.screen.latest_game()
+            if frame is None:
+                self._status("⚠️ JJS dataset: no hay fotograma disponible")
+                return
+            folder=DATA/"jjs_training"/"unlabelled"
+            folder.mkdir(parents=True,exist_ok=True)
+            stamp=time.strftime("%Y%m%d_%H%M%S")
+            millis=int(time.time()*1000)%1000
+            path=folder/f"jjs_{stamp}_{millis:03d}.jpg"
+            from PIL import Image
+            Image.fromarray(frame).convert("RGB").save(path,format="JPEG",quality=92,optimize=True)
+            self._status("📷 Ejemplo JJS guardado: "+path.name)
+        except Exception as exc:
+            self._status("❌ No pude guardar ejemplo JJS: "+str(exc)[:120])
 
     def _styles(self):
         self.style = ttk.Style(self.root)
@@ -367,7 +399,7 @@ class NariApp:
         ttk.Label(info, textvariable=self.game_status, background=PANEL, foreground=MUTED).pack(side="left")
         self.game_learning_status = tk.StringVar(value="Aprendizaje: listo")
         ttk.Label(info, textvariable=self.game_learning_status, background=PANEL, foreground=ACCENT2).pack(side="left", padx=(16,0))
-        ttk.Label(info, text="   •   F8 detiene todo", background=PANEL, foreground=ACCENT2).pack(side="left")
+        ttk.Label(info, text="   •   F8 detener  •  F9 guardar ejemplo JJS", background=PANEL, foreground=ACCENT2).pack(side="left")
         self.video_label = ttk.Label(f, background="#080a0e"); self.video_label.pack(fill="both", expand=True, pady=(8,0))
 
     def _make_people(self):
