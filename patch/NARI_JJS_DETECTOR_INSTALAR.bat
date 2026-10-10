@@ -14,7 +14,7 @@ call ".venv\Scripts\activate.bat"
 echo.
 echo Instalando el detector local YOLO en el entorno de NARI...
 echo Esta instalacion puede descargar dependencias grandes de PyTorch.
-python -m pip install --upgrade ultralytics
+python -m pip install ultralytics
 if errorlevel 1 (
   echo.
   echo No se pudo instalar Ultralytics. NARI seguira usando la vision VLM como respaldo.
