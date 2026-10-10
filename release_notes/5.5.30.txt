@@ -1,0 +1,13 @@
+NARI 5.5.30
+
+JJS adaptive perception, reasoning and learning.
+
+- Integrates an optional local YOLO detector with temporal target tracking and target telemetry.
+- Keeps local detection and controls independent from slow VLM inference.
+- Restores the full tactical vision/reasoning pass alongside compact target acquisition.
+- Prevents stale or repeated VLM results from replaying actions or accumulating the same hit event several times.
+- Uses local target coordinates, distance trends and source confidence in persistent JJS policy learning.
+- Adds F9 capture of real JJS frames for custom detector training.
+- Adds interactive multi-box labeling, negative examples and a fine-tuning workflow for a JJS-specific enemy detector.
+- Prompts once to install the local detector when it is missing; VLM fallback remains available.
+- Adds a cooldown/opening gate for the reasoning model to suggest abilities, while local defense and control remain responsive.
