@@ -118,6 +118,7 @@ class NariApp:
         self.jjs_vlm_prev_action = "ninguna"
         self.jjs_vlm_state = ""
         self.jjs_vlm_result_kind = "think"
+        self.jjs_vlm_result_seq = 0
         self.jjs_vlm_scan_result = None
         self.jjs_vlm_scan_ts = 0.0
         self.jjs_last_think_ts = 0.0
@@ -692,6 +693,7 @@ class NariApp:
         self.jjs_vlm_prev_action="ninguna"
         self.jjs_vlm_state=""
         self.jjs_vlm_result_kind="think"
+        self.jjs_vlm_result_seq=0
         self.jjs_vlm_scan_result=None
         self.jjs_vlm_scan_ts=0.0
         self.jjs_last_think_ts=0.0
@@ -1216,6 +1218,7 @@ class NariApp:
                     self.jjs_vlm_result=dict(result)
                     self.jjs_vlm_result_ts=stamp
                     self.jjs_vlm_result_kind="think"
+                    self.jjs_vlm_result_seq+=1
                     self.jjs_last_think_ts=stamp
                     self.jjs_last_vlm_ts=stamp
                 else:
@@ -1690,6 +1693,7 @@ class NariApp:
         previous_note = ""
         previous_goal_state = ""
         last_decision_ui = 0.0
+        last_thought_seq_used = -1
         next_vlm_ts = 0.0
         next_action_ts = 0.0
 
@@ -1741,6 +1745,7 @@ class NariApp:
             if profile=="jjs":
                 with self.jjs_camera_state_lock:
                     thought=dict(self.jjs_vlm_result) if isinstance(self.jjs_vlm_result,dict) else None
+                    thought_seq=int(self.jjs_vlm_result_seq)
                     thought_age=(
                         now_loop-float(self.jjs_vlm_result_ts)
                         if self.jjs_vlm_result_ts>0 else 999.0
@@ -1766,6 +1771,27 @@ class NariApp:
                             if key in scan:
                                 result[key]=scan[key]
                         result["_scan_age"]=scan_age
+                    if thought_seq==last_thought_seq_used:
+                        # A thought may stay cached while a slower model runs, but its
+                        # action proposal and event flags must never be replayed each tick.
+                        result["actions"]=[]
+                        for event in (
+                            "hit_confirmed","block_success","ability_confirmed",
+                            "ability_whiff","ko_confirmed","death_or_ko",
+                        ):
+                            result[event]=False
+                        result["enemy_health_delta"]=0.0
+                        result["player_health_delta"]=0.0
+                        result["progress_delta"]=0.0
+                        result["action_effect"]=0.0
+                        if thought_age>1.25:
+                            for transient in (
+                                "opponent_attacking","target_blocking","target_stunned",
+                                "player_stunned","player_ragdolled","player_dead",
+                            ):
+                                result[transient]=False
+                    else:
+                        last_thought_seq_used=thought_seq
                 elif scan is not None and scan_age<=2.8:
                     result=scan
                     result["_vlm_age"]=scan_age
