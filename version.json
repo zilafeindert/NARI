@@ -1,8 +1,8 @@
 {
-  "version": "5.5.34",
-  "tag": "v5.5.34",
+  "version": "5.5.35",
+  "tag": "v5.5.35",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "windows-installer-entrypoint-dependencies-36"
+  "release_build": "installer-bs4-dependency-37"
 }
