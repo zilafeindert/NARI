@@ -1,0 +1,10 @@
+NARI 5.5.31
+
+Windows Python runtime recovery.
+
+- Detects a broken virtual environment before starting NARI.
+- Repairs .venv against an available Python 3.14 runtime without deleting the existing environment's packages.
+- Offers to install/repair Python 3.14 when the registered runtime is missing.
+- Runs the updater and app through .venv\Scripts\python.exe instead of depending on PATH activation.
+- Adds a standalone repair script for cases where the old launcher cannot start.
+- Preserves data, memory database, models, voices and environment secrets; runtime repair does not remove these folders.
