@@ -1,0 +1,11 @@
+NARI 5.5.33
+
+Conservative JJS combat and camera tracking.
+
+- Removes automatic W+M1 recovery actions when no enemy is visibly confirmed.
+- Rejects enemy mentions that lack real screen coordinates instead of fabricating a centered target.
+- Tracks observation timestamps and only issues one camera correction per new measurement.
+- Smooths movement, rejects sudden target jumps until independently confirmed, and reduces camera-turn magnitudes.
+- Requires repeated stable target observations and plausible range before routine human-target M1 attacks.
+- Approaches distant targets without attacking and avoids M1 spam into a blocking opponent.
+- Gives the camera thread sole responsibility for aiming; gameplay decisions own movement and attacks.
