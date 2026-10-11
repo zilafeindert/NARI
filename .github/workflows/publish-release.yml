@@ -39,6 +39,7 @@ jobs:
           test -f NARI_REPARAR_PYTHON.bat
           test -f main.py
           test -f requirements.txt
+          grep -qi beautifulsoup4 requirements.txt
           test -f nari/app.py
 
           python -m compileall -q .
