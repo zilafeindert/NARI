@@ -1,0 +1,7 @@
+NARI 5.5.36
+
+Corrección del arranque de visión de pantalla.
+
+- Añade mss a las dependencias principales para habilitar la captura de pantalla.
+- Si MSS falta o no puede importarse tras una actualización que conserva .venv, main.py intenta repararlo con el Python de NARI antes de iniciar la interfaz.
+- El flujo de publicación verifica que MSS esté declarado y que exista la reparación de arranque.

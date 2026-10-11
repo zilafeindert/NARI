@@ -1,4 +1,5 @@
 # Dependencias principales de NARI para Windows.
+# MSS permite capturar la pantalla; main.py lo repara si falta tras una actualización.
 # Ultralytics/PyTorch es opcional y se instala con NARI_JJS_DETECTOR_INSTALAR.bat.
 numpy>=2.3
 Pillow>=11.0
@@ -9,3 +10,4 @@ vosk>=0.3.45
 PyAutoGUI>=0.9.54
 pyperclip>=1.9.0
 beautifulsoup4>=4.13
+mss>=10.0.0

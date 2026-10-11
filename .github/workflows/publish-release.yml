@@ -40,6 +40,8 @@ jobs:
           test -f main.py
           test -f requirements.txt
           grep -qi beautifulsoup4 requirements.txt
+          grep -Eiq '^mss[<=>~!].*$' requirements.txt
+          grep -q '_ensure_mss_available' main.py
           test -f nari/app.py
 
           python -m compileall -q .
