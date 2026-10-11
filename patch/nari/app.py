@@ -1028,7 +1028,7 @@ class NariApp:
                     human_hits=self.jjs_human_stable_hits
                     human_source=getattr(self,"jjs_human_target_source","vlm")
 
-                human_ttl=0.42 if human_source=="yolo" else 1.35
+                human_ttl=0.42 if human_source=="yolo" else 2.20
                 if human_center is not None and now-human_ts<=human_ttl and human_hits>=2:
                     no_target_since=None
                     hx,hy=human_center
@@ -1366,7 +1366,7 @@ class NariApp:
             cached_source = getattr(self, "jjs_human_target_source", "vlm")
 
         def usable_ttl(source):
-            return 0.42 if source == "yolo" else 1.45
+            return 0.42 if source == "yolo" else 2.40
 
         if not visible:
             ttl = usable_ttl(cached_source)
