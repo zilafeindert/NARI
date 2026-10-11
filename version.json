@@ -1,8 +1,8 @@
 {
-  "version": "5.5.31",
-  "tag": "v5.5.31",
+  "version": "5.5.32",
+  "tag": "v5.5.32",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "python-runtime-recovery-33"
+  "release_build": "jjs-installer-opencv-unlock-34"
 }
