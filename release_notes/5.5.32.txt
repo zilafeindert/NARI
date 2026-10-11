@@ -1,0 +1,8 @@
+NARI 5.5.32
+
+Fix for Windows OpenCV DLL access-denied errors during JJS detector installation.
+
+- Closes NARI before installing Ultralytics so Windows can release cv2.pyd.
+- Waits for the previous NARI process to exit before pip installs or updates OpenCV.
+- Restarts NARI after detector installation, even when installation reports an error.
+- Keeps the existing VLM fallback when the optional detector cannot be installed.
