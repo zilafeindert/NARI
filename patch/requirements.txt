@@ -1,0 +1,10 @@
+# Dependencias principales de NARI para Windows.
+# Ultralytics/PyTorch es opcional y se instala con NARI_JJS_DETECTOR_INSTALAR.bat.
+numpy>=2.3
+Pillow>=11.0
+requests>=2.32
+opencv-python>=4.13.0.90
+sounddevice>=0.5.1
+vosk>=0.3.45
+PyAutoGUI>=0.9.54
+pyperclip>=1.9.0
