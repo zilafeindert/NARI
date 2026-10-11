@@ -643,14 +643,18 @@ class NariApp:
                 )
                 if install:
                     try:
+                        # OpenCV's cv2.pyd is loaded by NARI. Close this process first,
+                        # then let the installer wait for this PID before pip can replace it.
                         subprocess.Popen(
-                            ["cmd","/c",str(install_script)],
+                            ["cmd","/c",str(install_script),str(os.getpid()),"--restart"],
                             cwd=str(ROOT),
                             creationflags=getattr(subprocess,"CREATE_NEW_CONSOLE",0),
                         )
-                        self._status("Instalando detector JJS en segundo plano; el respaldo VLM sigue activo.")
+                        self._status("El detector se instalará al cerrar NARI; después se reiniciará automáticamente.")
+                        self.root.after(250,self.close)
                     except Exception as exc:
                         self._status("No pude abrir el instalador: "+str(exc)[:120])
+                    return
 
         goal=self.game_goal.get().strip() or (
             "Explora el juego, aprende sus controles y completa objetivos visibles."
