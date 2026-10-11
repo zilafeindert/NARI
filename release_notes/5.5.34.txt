@@ -1,0 +1,10 @@
+NARI 5.5.34
+
+Complete Windows installation package.
+
+- Adds NARI_INSTALAR.bat to create or repair the Python virtual environment and install base dependencies.
+- Adds requirements.txt for core dependencies.
+- Adds the missing main.py entry point used by NARI_INICIAR.bat.
+- Backs up a broken .venv rather than removing it, preserving user data and giving a recovery path.
+- Preserves data, models, voices and .env.
+- Validates that every release ZIP contains the installer, launcher, repair script, requirements and entry point.
