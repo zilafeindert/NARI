@@ -31,7 +31,7 @@ jobs:
           mkdir -p "build/NARI-${VERSION}"
           cp -R patch/. "build/NARI-${VERSION}/"
           cd "build/NARI-${VERSION}"
-          printf "%s\n" "$VERSION" > NARI_BUILD_VERSION.txt
+          printf "%s\\n" "$VERSION" > NARI_BUILD_VERSION.txt
 
           # Do not publish a ZIP without the runnable entry point and installer.
           test -f NARI_INSTALAR.bat
@@ -40,6 +40,8 @@ jobs:
           test -f main.py
           test -f requirements.txt
           grep -qi beautifulsoup4 requirements.txt
+          grep -Eiq '^mss[<=>~!].*$' requirements.txt
+          grep -q '_ensure_mss_available' main.py
           test -f nari/app.py
 
           python -m compileall -q .
