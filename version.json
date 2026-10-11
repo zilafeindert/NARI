@@ -1,8 +1,8 @@
 {
-  "version": "5.5.30",
-  "tag": "v5.5.30",
+  "version": "5.5.31",
+  "tag": "v5.5.31",
   "name": "NARI",
   "update_mode": "github-release",
   "minimum_bootstrap": "5.1.5",
-  "release_build": "jjs-adaptive-vision-reasoning-learning-32"
+  "release_build": "python-runtime-recovery-33"
 }
