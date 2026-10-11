@@ -23,7 +23,7 @@ jobs:
           VERSION="$(python -c 'import json; print(json.load(open("version.json", encoding="utf-8"))["version"])')"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build update ZIP
+      - name: Build and validate installer package
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -32,7 +32,16 @@ jobs:
           cp -R patch/. "build/NARI-${VERSION}/"
           cd "build/NARI-${VERSION}"
           printf "%s\n" "$VERSION" > NARI_BUILD_VERSION.txt
-          python -m compileall -q nari
+
+          # Do not publish a ZIP without the runnable entry point and installer.
+          test -f NARI_INSTALAR.bat
+          test -f NARI_INICIAR.bat
+          test -f NARI_REPARAR_PYTHON.bat
+          test -f main.py
+          test -f requirements.txt
+          test -f nari/app.py
+
+          python -m compileall -q .
           zip -qr "../NARI-${VERSION}.zip" .
           cd ../..
 
