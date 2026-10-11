@@ -8,3 +8,4 @@ sounddevice>=0.5.1
 vosk>=0.3.45
 PyAutoGUI>=0.9.54
 pyperclip>=1.9.0
+beautifulsoup4>=4.13
