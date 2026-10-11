@@ -92,6 +92,10 @@ class NariApp:
         self.jjs_human_stable_hits = 0
         self.jjs_human_prev_aim_error = None
         self.jjs_human_center_ts = 0.0
+        self.jjs_human_observation_ts = 0.0
+        self.jjs_human_target_source = "vlm"
+        self.jjs_human_jump_candidate = None
+        self.jjs_human_jump_candidate_hits = 0
         self.jjs_camera_running = False
         self.jjs_camera_thread = None
         self.jjs_camera_state_lock = threading.RLock()
@@ -673,6 +677,10 @@ class NariApp:
         self.jjs_human_stable_hits=0
         self.jjs_human_prev_aim_error=None
         self.jjs_human_center_ts=0.0
+        self.jjs_human_observation_ts=0.0
+        self.jjs_human_target_source="vlm"
+        self.jjs_human_jump_candidate=None
+        self.jjs_human_jump_candidate_hits=0
         self.jjs_camera_running=False
         self.jjs_camera_target=None
         self.jjs_camera_target_ts=0.0
@@ -853,6 +861,8 @@ class NariApp:
         previous_error=None
         last_dummy_seen=0.0
         no_target_since=None
+        last_human_adjusted_ts=0.0
+        last_dummy_adjusted_ts=0.0
 
         while self.game_running and self.jjs_camera_running:
             frame=self.screen.latest_game()
@@ -918,7 +928,7 @@ class NariApp:
                         # previous track and require fresh stable frames.
                         stable_hits=0
 
-                if stable_hits<2:
+                if stable_hits<3:
                     time.sleep(0.020)
                     continue
 
@@ -970,46 +980,36 @@ class NariApp:
 
                 centered=abs(smooth[0]-0.5)<=0.070 and abs(smooth[1]-0.5)<=0.085
 
-                # Respaldo local: si la percepción VLM está atrasada, el Dummy
-                # todavía puede provocar movimiento/ataque sin quedarse congelado.
-                if centered and now-self.jjs_last_dummy_action_ts>=0.22:
-                    # Una sola accion: avanzar hacia el Dummy y golpear con M1 simultaneamente.
-                    try:
-                        exec_result=self.computer.act({"type":"advance_m1","seconds":0.11})
-                        if str(exec_result)=="OK":
-                            self.jjs_dummy_approach_count+=1
-                            self.jjs_dummy_attack_mode=True
-                            self.jjs_last_attack_ts=time.monotonic()
-                            self.jjs_last_dummy_action_ts=self.jjs_last_attack_ts
-                            self.jjs_dummy_fallback_action_ts=self.jjs_last_dummy_action_ts
-                        else:
-                            self._status("⚠️ Dummy W+M1: "+str(exec_result)[:90])
-                    except Exception as exc:
-                        self._status("⚠️ Dummy W+M1: "+str(exc)[:90])
-                    continue
-
-                if not centered and now-self.jjs_camera_last_move_ts>=0.18:
+                # La camara solo apunta. El bucle de juego es el unico que decide
+                # cuando moverse o atacar; dos hilos no deben lanzar M1 a la vez.
+                new_dummy_measurement = (
+                    not using_vlm_dummy
+                    or target_ts > last_dummy_adjusted_ts + 0.035
+                )
+                if centered:
+                    if using_vlm_dummy:
+                        last_dummy_adjusted_ts = max(last_dummy_adjusted_ts, target_ts)
+                elif new_dummy_measurement and now-self.jjs_camera_last_move_ts>=0.20:
                     ex=smooth[0]-0.5
                     ey=smooth[1]-0.5
-
-                    # Proportional controller with a deadband. The correction is
-                    # intentionally large enough to be smooth, not a twitch.
-                    dx=max(-72,min(72,int(ex*420)))
-                    dy=max(-54,min(54,int(ey*315)))
-                    if abs(ex)>0.070 and abs(dx)<9:
-                        dx=9 if ex>0 else -9
-                    if abs(ey)>0.085 and abs(dy)<8:
-                        dy=8 if ey>0 else -8
-
+                    # Correccion proporcional con ganancia baja y limites por giro.
+                    dx=max(-30,min(30,int(ex*185)))
+                    dy=max(-20,min(20,int(ey*135)))
+                    if abs(ex)>0.070 and abs(dx)<5:
+                        dx=5 if ex>0 else -5
+                    if abs(ey)>0.085 and abs(dy)<4:
+                        dy=4 if ey>0 else -4
                     if dx or dy:
                         try:
                             self.computer.act({
                                 "type":"camera_turn",
                                 "dx":dx,
                                 "dy":dy,
-                                "seconds":0.16,
+                                "seconds":0.08,
                             })
                             self.jjs_camera_last_move_ts=time.monotonic()
+                            if using_vlm_dummy:
+                                last_dummy_adjusted_ts = target_ts
                         except Exception as exc:
                             self._status("⚠️ Cámara JJS: "+str(exc)[:100])
                         continue
@@ -1026,8 +1026,11 @@ class NariApp:
                     human_center=self.jjs_human_center_smooth
                     human_ts=self.jjs_human_center_ts
                     human_hits=self.jjs_human_stable_hits
+                    human_source=getattr(self,"jjs_human_target_source","vlm")
 
-                if human_center is not None and now-human_ts<=0.75 and human_hits>=2:
+                human_ttl=0.42 if human_source=="yolo" else 1.35
+                if human_center is not None and now-human_ts<=human_ttl and human_hits>=2:
+                    no_target_since=None
                     hx,hy=human_center
                     target={
                         "kind":"human",
@@ -1037,31 +1040,41 @@ class NariApp:
                         "distance_delta":None,
                         "aim_alignment_delta":None,
                         "stable":True,
-                        "seen_ts":now,
+                        "seen_ts":human_ts,
                     }
                     with self.jjs_camera_state_lock:
                         self.jjs_camera_target=target
-                        self.jjs_camera_target_ts=now
+                        self.jjs_camera_target_ts=human_ts
 
                     centered=abs(hx-0.5)<=0.075 and abs(hy-0.5)<=0.090
-                    if not centered and now-self.jjs_camera_last_move_ts>=0.22:
+                    new_measurement=human_ts>last_human_adjusted_ts+0.035
+                    if centered and new_measurement:
+                        last_human_adjusted_ts=human_ts
+                    elif (
+                        not centered
+                        and new_measurement
+                        and now-self.jjs_camera_last_move_ts>=0.14
+                    ):
                         ex=hx-0.5
                         ey=hy-0.5
-                        dx=max(-62,min(62,int(ex*360)))
-                        dy=max(-46,min(46,int(ey*275)))
-                        if abs(ex)>0.075 and abs(dx)<8:
-                            dx=8 if ex>0 else -8
-                        if abs(ey)>0.090 and abs(dy)<7:
-                            dy=7 if ey>0 else -7
+                        # Small single-shot corrections prevent stale coordinates from
+                        # being applied again after the camera already moved.
+                        dx=max(-28,min(28,int(ex*220)))
+                        dy=max(-18,min(18,int(ey*145)))
+                        if abs(ex)>0.075 and abs(dx)<4:
+                            dx=4 if ex>0 else -4
+                        if abs(ey)>0.090 and abs(dy)<4:
+                            dy=4 if ey>0 else -4
                         if dx or dy:
                             try:
                                 self.computer.act({
                                     "type":"camera_turn",
                                     "dx":dx,
                                     "dy":dy,
-                                    "seconds":0.15,
+                                    "seconds":0.08,
                                 })
                                 self.jjs_camera_last_move_ts=time.monotonic()
+                                last_human_adjusted_ts=human_ts
                             except Exception as exc:
                                 self._status("⚠️ Cámara JJS: "+str(exc)[:100])
                             continue
@@ -1074,16 +1087,16 @@ class NariApp:
                     self.jjs_dummy_approach_count=0
                     self.jjs_dummy_attack_mode=False
 
-                    # Very slow reacquisition only after a real loss of target.
-                    if now-no_target_since>=0.65 and now>=self.jjs_camera_search_next_ts:
+                    # Busqueda suave y poco frecuente cuando el blanco se perdió de verdad.
+                    if now-no_target_since>=0.90 and now>=self.jjs_camera_search_next_ts:
                         self.jjs_camera_search_direction*=-1
-                        self.jjs_camera_search_next_ts=now+0.72
+                        self.jjs_camera_search_next_ts=now+1.05
                         try:
                             self.computer.act({
                                 "type":"camera_turn",
-                                "dx":34*self.jjs_camera_search_direction,
+                                "dx":18*self.jjs_camera_search_direction,
                                 "dy":0,
-                                "seconds":0.12,
+                                "seconds":0.08,
                             })
                             self.jjs_camera_last_move_ts=time.monotonic()
                         except Exception as exc:
@@ -1288,260 +1301,314 @@ class NariApp:
         try:
             self.computer.act({
                 "type":"camera_turn",
-                "dx":48*direction,
+                "dx":18*direction,
                 "dy":0,
-                "seconds":0.10,
+                "seconds":0.08,
             })
             self.jjs_camera_last_move_ts=time.monotonic()
         except Exception:
             pass
 
     def _jjs_recovery_action(self):
-        """Movimiento de recuperacion que impide que un fallo/perdida del VLM congele JJS."""
-        now=time.monotonic()
-        if now-self.jjs_last_recovery_action_ts<0.30:
-            return {"type":"wait","seconds":0.05}, "jjs-recovery-wait"
-
-        self.jjs_last_recovery_action_ts=now
-        cursor=self.jjs_recovery_cursor%6
-        self.jjs_recovery_cursor+=1
-        if cursor in (0,1,2,3):
-            # Mientras adquiere objetivo, no se queda mirando: presiona W y M1 a la vez.
-            return {"type":"advance_m1","seconds":0.11}, "jjs-acquire-advance-m1"
-        if cursor==4:
-            return {"type":"hold","key":"a","seconds":0.12}, "jjs-recovery-left"
-        self._jjs_search_camera_pulse()
-        return {"type":"hold","key":"d","seconds":0.12}, "jjs-recovery-right"
+        """Sin objetivo confirmado, solo espera; la camara se encarga de buscar."""
+        now = time.monotonic()
+        if now - self.jjs_last_recovery_action_ts < 0.18:
+            return {"type": "wait", "seconds": 0.08}, "jjs-observe-wait"
+        self.jjs_last_recovery_action_ts = now
+        # No avanzar ni pulsar M1 cuando la percepcion no puede identificar un rival.
+        return {"type": "wait", "seconds": 0.10}, "jjs-search-without-attacking"
 
     def _jjs_normalize_human_target(self, result):
-        if not isinstance(result,dict):
+        """No inventa coordenadas centrales cuando solo se reconocio texto de 'enemigo'."""
+        if not isinstance(result, dict):
+            return result
+        if bool(result.get("target_is_dummy", False)):
             return result
 
-        if bool(result.get("target_is_dummy",False)):
+        name = str(result.get("target_name", "") or "").strip().lower()
+        obs = str(result.get("observation", "") or "").strip().lower()
+        note = str(result.get("decision_note", "") or "").strip().lower()
+        blob = " ".join((name, obs, note))
+        terms = (
+            "enemy", "opponent", "rival", "foe", "hostile", "adversary",
+            "enemigo", "oponente", "adversario", "jugador enemigo",
+        )
+        explicit_enemy = any(term in blob for term in terms)
+        has_center = "target_center_x" in result and "target_center_y" in result
+        if has_center:
+            try:
+                cx, cy = float(result["target_center_x"]), float(result["target_center_y"])
+                has_center = 0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0
+            except (TypeError, ValueError):
+                has_center = False
+
+        if not has_center:
+            # Nunca convertir "vi un enemigo" sin coordenadas en un falso blanco centrado.
+            result["target_visible"] = False
             return result
 
-        name=str(result.get("target_name","") or "").strip().lower()
-        obs=str(result.get("observation","") or "").strip().lower()
-        note=str(result.get("decision_note","") or "").strip().lower()
-        blob=" ".join((name,obs,note))
-        terms=("enemy","opponent","rival","foe","hostile","adversary","enemigo","oponente","adversario","jugador enemigo","enemy player")
-        explicit=any(t in blob for t in terms)
-
-        if explicit:
-            result["target_visible"]=True
-            result["target_is_dummy"]=False
+        if explicit_enemy:
+            result["target_visible"] = True
             if not name:
-                result["target_name"]="enemy"
-            result.setdefault("target_center_x",0.5)
-            result.setdefault("target_center_y",0.5)
+                result["target_name"] = "enemy"
         return result
 
     def _jjs_update_human_target(self, result, now, is_dummy=False):
-        """Actualiza el objetivo humano de forma centralizada antes de cualquier decisión."""
-        if is_dummy:
+        """Filtra mediciones nuevas, exige continuidad y no renueva coordenadas viejas."""
+        if is_dummy or not isinstance(result, dict):
             return None, 0
 
-        visible=bool(result.get("target_visible",False))
-        if not visible:
-            # Mantener brevemente el ultimo objetivo estable evita que una sola
-            # lectura VLM perdida apague la camara y el ataque inmediatamente.
-            with self.jjs_camera_state_lock:
-                cached=self.jjs_human_center_smooth
-                cached_hits=self.jjs_human_stable_hits
-                cached_ts=self.jjs_human_center_ts
-            if (
-                cached is not None
-                and cached_hits>=2
-                and now-cached_ts<=0.90
-            ):
-                result["target_visible"]=True
-                result["target_is_dummy"]=False
-                result["target_name"]="enemy"
-                result["target_center_x"]=float(cached[0])
-                result["target_center_y"]=float(cached[1])
-                return cached, cached_hits
+        visible = bool(result.get("target_visible", False))
+        with self.jjs_camera_state_lock:
+            cached = self.jjs_human_center_smooth
+            cached_hits = self.jjs_human_stable_hits
+            cached_ts = self.jjs_human_center_ts
+            cached_source = getattr(self, "jjs_human_target_source", "vlm")
 
-            with self.jjs_camera_state_lock:
-                self.jjs_human_center_smooth=None
-                self.jjs_human_stable_hits=0
-                self.jjs_human_prev_aim_error=None
-                self.jjs_human_center_ts=0.0
+        def usable_ttl(source):
+            return 0.42 if source == "yolo" else 1.45
+
+        if not visible:
+            ttl = usable_ttl(cached_source)
+            if cached is not None and cached_hits >= 2 and now - cached_ts <= ttl:
+                result["target_visible"] = True
+                result["target_is_dummy"] = False
+                result["target_name"] = "enemy"
+                result["target_center_x"] = float(cached[0])
+                result["target_center_y"] = float(cached[1])
+                result["target_source"] = "yolo-person" if cached_source == "yolo" else "vlm-tracked"
+                return cached, cached_hits
             return None, 0
 
         if "target_center_x" not in result or "target_center_y" not in result:
-            with self.jjs_camera_state_lock:
-                self.jjs_human_center_smooth=None
-                self.jjs_human_stable_hits=0
-                self.jjs_human_prev_aim_error=None
-                self.jjs_human_center_ts=0.0
+            return None, 0
+        try:
+            cx = max(0.0, min(1.0, float(result["target_center_x"])))
+            cy = max(0.0, min(1.0, float(result["target_center_y"])))
+        except (TypeError, ValueError):
             return None, 0
 
+        source = "yolo" if result.get("target_source") == "yolo-person" else "vlm"
         try:
-            cx=max(0.0,min(1.0,float(result.get("target_center_x",0.5))))
-            cy=max(0.0,min(1.0,float(result.get("target_center_y",0.5))))
-        except Exception:
+            if source == "yolo":
+                observation_age = max(0.0, float(result.get("detector_age", 0.0)))
+            else:
+                observation_age = max(0.0, float(result.get("_scan_age", result.get("_vlm_age", 0.0))))
+        except (TypeError, ValueError):
+            observation_age = 999.0
+        ttl = usable_ttl(source)
+        if observation_age > ttl:
             return None, 0
+        observed_at = now - observation_age
 
         with self.jjs_camera_state_lock:
-            previous_human=self.jjs_human_center_smooth
-            previous_hits=self.jjs_human_stable_hits
+            previous = self.jjs_human_center_smooth
+            previous_hits = self.jjs_human_stable_hits
+            last_observation = getattr(self, "jjs_human_observation_ts", 0.0)
+            candidate = getattr(self, "jjs_human_jump_candidate", None)
+            candidate_hits = getattr(self, "jjs_human_jump_candidate_hits", 0)
 
-        if previous_human is None:
-            smooth_human=(cx,cy)
-            human_hits=1
+        # A cached VLM answer is not a new observation. Do not count it repeatedly.
+        if observed_at <= last_observation + 0.035:
+            if previous is not None and previous_hits > 0 and now - cached_ts <= ttl:
+                result["target_center_x"] = float(previous[0])
+                result["target_center_y"] = float(previous[1])
+                return previous, previous_hits
+            return None, 0
+
+        if previous is None:
+            smooth = (cx, cy)
+            hits = 1
         else:
-            jump=((cx-previous_human[0])**2+(cy-previous_human[1])**2)**0.5
-            if jump<=0.22:
-                smooth_human=(
-                    previous_human[0]*0.68 + cx*0.32,
-                    previous_human[1]*0.68 + cy*0.32,
-                )
-                human_hits=min(8,previous_hits+1)
+            jump = ((cx - previous[0]) ** 2 + (cy - previous[1]) ** 2) ** 0.5
+            if jump <= 0.12:
+                smooth = (previous[0] * 0.72 + cx * 0.28, previous[1] * 0.72 + cy * 0.28)
+                hits = min(12, previous_hits + 1)
+                candidate, candidate_hits = None, 0
+            elif jump <= 0.26:
+                smooth = (previous[0] * 0.56 + cx * 0.44, previous[1] * 0.56 + cy * 0.44)
+                hits = min(12, previous_hits + 1)
+                candidate, candidate_hits = None, 0
             else:
-                smooth_human=previous_human
-                human_hits=0
+                # A large discontinuity may be another avatar or a false VLM guess.
+                if candidate is not None and (
+                    (cx - candidate[0]) ** 2 + (cy - candidate[1]) ** 2
+                ) ** 0.5 <= 0.12:
+                    candidate = (candidate[0] * 0.45 + cx * 0.55, candidate[1] * 0.45 + cy * 0.55)
+                    candidate_hits += 1
+                else:
+                    candidate, candidate_hits = (cx, cy), 1
 
-        aim_error=((smooth_human[0]-0.5)**2+(smooth_human[1]-0.5)**2)**0.5
+                if candidate_hits >= 2:
+                    smooth = (previous[0] * 0.28 + cx * 0.72, previous[1] * 0.28 + cy * 0.72)
+                    hits = 1
+                    candidate, candidate_hits = None, 0
+                else:
+                    with self.jjs_camera_state_lock:
+                        self.jjs_human_observation_ts = observed_at
+                        self.jjs_human_jump_candidate = candidate
+                        self.jjs_human_jump_candidate_hits = candidate_hits
+                    return None, 0
+
+        aim_error = ((smooth[0] - 0.5) ** 2 + (smooth[1] - 0.5) ** 2) ** 0.5
         with self.jjs_camera_state_lock:
             if self.jjs_human_prev_aim_error is not None:
-                result["aim_alignment_delta"]=float(
-                    self.jjs_human_prev_aim_error-aim_error
-                )
-            self.jjs_human_prev_aim_error=aim_error
-            self.jjs_human_center_smooth=smooth_human
-            self.jjs_human_stable_hits=human_hits
-            self.jjs_human_center_ts=now
+                result["aim_alignment_delta"] = float(self.jjs_human_prev_aim_error - aim_error)
+            self.jjs_human_prev_aim_error = aim_error
+            self.jjs_human_center_smooth = smooth
+            self.jjs_human_stable_hits = hits
+            self.jjs_human_center_ts = observed_at
+            self.jjs_human_observation_ts = observed_at
+            self.jjs_human_target_source = source
+            self.jjs_human_jump_candidate = candidate
+            self.jjs_human_jump_candidate_hits = candidate_hits
 
-        result["target_center_x"]=smooth_human[0]
-        result["target_center_y"]=smooth_human[1]
-        return smooth_human, human_hits
+        result["target_center_x"] = smooth[0]
+        result["target_center_y"] = smooth[1]
+        return smooth, hits
 
     def _jjs_combat_override(self, result, is_dummy=False):
-        """Ejecutivo rapido de combate: decide defensa/escape/rango sin esperar otra capa."""
+        """Combate conservador: confirmar, apuntar, acercarse y solo entonces golpear."""
         if not isinstance(result, dict):
             return None, "combat-none"
-
-        now=time.monotonic()
+        now = time.monotonic()
 
         def flag(name):
-            return bool(result.get(name,False))
+            return bool(result.get(name, False))
 
         def num(name, default=0.0):
             try:
-                return float(result.get(name,default) or default)
-            except Exception:
+                return float(result.get(name, default) or default)
+            except (TypeError, ValueError):
                 return float(default)
 
-        visible=flag("target_visible")
-        confidence=num("confidence",0.0)
-        distance=max(0.0,min(1.0,num("target_distance",0.75)))
-        hit=flag("hit_confirmed")
-        whiff=flag("ability_whiff")
-        target_stunned=flag("target_stunned")
-        target_blocking=flag("target_blocking")
-        opponent_attacking=flag("opponent_attacking")
-        player_stunned=flag("player_stunned")
-        player_ragdolled=flag("player_ragdolled")
-        player_dead=flag("player_dead")
+        visible = flag("target_visible")
+        confidence = num("confidence", 0.0)
+        distance = max(0.0, min(1.0, num("target_distance", 0.78)))
+        hit = flag("hit_confirmed")
+        whiff = flag("ability_whiff")
+        target_stunned = flag("target_stunned")
+        target_blocking = flag("target_blocking")
+        opponent_attacking = flag("opponent_attacking")
+        player_stunned = flag("player_stunned")
+        player_ragdolled = flag("player_ragdolled")
+        player_dead = flag("player_dead")
 
         if hit:
-            self.jjs_confirmed_hits=min(8,self.jjs_confirmed_hits+1)
-            self.jjs_last_hit_ts=now
+            self.jjs_confirmed_hits = min(8, self.jjs_confirmed_hits + 1)
+            self.jjs_last_hit_ts = now
         if whiff:
-            self.jjs_confirmed_hits=0
+            self.jjs_confirmed_hits = 0
 
-        # Recuperacion: nunca seguimos atacando a ciegas si el jugador esta incapacitado.
         if player_dead:
-            self.jjs_combat_phase="recover"
-            return {"type":"wait","seconds":0.16}, "combat-recover"
-
+            self.jjs_combat_phase = "recover"
+            return {"type": "wait", "seconds": 0.16}, "combat-recover"
         if player_stunned or player_ragdolled:
-            if now-self.jjs_last_dash_ts>=0.70:
-                self.jjs_last_dash_ts=now
-                self.jjs_combat_phase="escape"
-                return {"type":"press","key":"q"}, "combat-escape"
-            self.jjs_combat_phase="recover"
-            return {"type":"wait","seconds":0.10}, "combat-stun-wait"
-
+            if now - self.jjs_last_dash_ts >= 0.70:
+                self.jjs_last_dash_ts = now
+                self.jjs_combat_phase = "escape"
+                return {"type": "press", "key": "q"}, "combat-escape"
+            self.jjs_combat_phase = "recover"
+            return {"type": "wait", "seconds": 0.10}, "combat-stun-wait"
         if not visible:
-            self.jjs_combat_phase="search"
+            self.jjs_combat_phase = "search"
             return None, "combat-search"
 
-        # Defensa reactiva: el bloqueo solo dura microventanas, despues se vuelve a leer.
-        if opponent_attacking and now-self.jjs_last_block_ts>=0.32:
-            self.jjs_last_block_ts=now
-            self.jjs_combat_phase="defend"
-            return {"type":"block","seconds":0.16}, "combat-defend"
+        try:
+            event_age = max(0.0, float(result.get("_vlm_age", 0.0)))
+        except (TypeError, ValueError):
+            event_age = 999.0
+        events_fresh = event_age <= 1.15
+        if events_fresh and opponent_attacking and now - self.jjs_last_block_ts >= 0.42:
+            self.jjs_last_block_ts = now
+            self.jjs_combat_phase = "defend"
+            return {"type": "block", "seconds": 0.13}, "combat-defend"
 
-        if target_blocking:
-            self.jjs_combat_phase="guard"
-            if distance>0.70 and now-self.jjs_last_tactical_ts>=0.30:
-                self.jjs_last_tactical_ts=now
-                return {"type":"hold","key":"w","seconds":0.12}, "combat-close-guard"
-            # Contra guardia: no spamear M1. Dejamos al VLM elegir una habilidad
-            # cuando haya evidencia de que sirve.
-            return None, "combat-guard-read"
+        human_center, human_hits = self._jjs_update_human_target(result, now, is_dummy=is_dummy)
+        if not is_dummy:
+            if human_center is None or human_hits < 2:
+                self.jjs_combat_phase = "target-confirm"
+                return {"type": "wait", "seconds": 0.08}, "combat-confirm-target"
+            cx, cy = human_center
+        else:
+            try:
+                cx = max(0.0, min(1.0, float(result["target_center_x"])))
+                cy = max(0.0, min(1.0, float(result["target_center_y"])))
+            except (KeyError, TypeError, ValueError):
+                self.jjs_combat_phase = "aim-wait"
+                return {"type": "wait", "seconds": 0.08}, "combat-no-dummy-center"
 
-        human_center,human_hits=self._jjs_update_human_target(
-            result, now, is_dummy=is_dummy
-        )
-        if not is_dummy and human_center is None:
-            self.jjs_combat_phase="aim-wait"
-            return {"type":"wait","seconds":0.08}, "combat-no-center"
+        centered = abs(cx - 0.5) <= 0.075 and abs(cy - 0.5) <= 0.090
+        if not centered:
+            self.jjs_combat_phase = "aim"
+            return {"type": "wait", "seconds": 0.08}, "combat-aim"
+        if not is_dummy and human_hits < 3:
+            self.jjs_combat_phase = "target-confirm"
+            return {"type": "wait", "seconds": 0.08}, "combat-confirm-before-action"
+
+        if events_fresh and target_blocking:
+            self.jjs_combat_phase = "guard"
+            if distance > 0.72 and now - self.jjs_last_tactical_ts >= 0.38:
+                self.jjs_last_tactical_ts = now
+                return {"type": "hold", "key": "w", "seconds": 0.10}, "combat-close-guard"
+            if now - self.jjs_last_tactical_ts >= 0.42:
+                self.jjs_last_tactical_ts = now
+                key = "a" if int(now * 2) % 2 == 0 else "d"
+                return {"type": "hold", "key": key, "seconds": 0.10}, "combat-circle-guard"
+            return {"type": "wait", "seconds": 0.08}, "combat-guard-read"
+
+        if events_fresh and target_stunned:
+            self.jjs_combat_phase = "punish"
+            if distance > 0.60 and now - self.jjs_last_tactical_ts >= 0.22:
+                self.jjs_last_tactical_ts = now
+                return {"type": "hold", "key": "w", "seconds": 0.10}, "combat-punish-close"
+            if now - self.jjs_last_attack_ts >= 0.30:
+                self.jjs_last_attack_ts = now
+                return {"type": "m1", "seconds": 0.05}, "combat-punish-m1"
+            return {"type": "wait", "seconds": 0.06}, "combat-punish-wait"
 
         if is_dummy:
-            try:
-                cx=max(0.0,min(1.0,float(result.get("target_center_x",0.5) or 0.5)))
-                cy=max(0.0,min(1.0,float(result.get("target_center_y",0.5) or 0.5)))
-            except Exception:
-                cx=cy=0.5
-        else:
-            cx,cy=human_center
+            if distance > 0.60:
+                self.jjs_combat_phase = "approach"
+                if now - self.jjs_last_tactical_ts >= 0.24:
+                    self.jjs_last_tactical_ts = now
+                    return {"type": "hold", "key": "w", "seconds": 0.10}, "combat-approach-dummy"
+            self.jjs_combat_phase = "engage"
+            if now - self.jjs_last_attack_ts >= 0.30:
+                self.jjs_last_attack_ts = now
+                return {"type": "m1", "seconds": 0.05}, "combat-dummy-m1"
+            return {"type": "wait", "seconds": 0.06}, "combat-dummy-wait"
 
-        centered=(abs(cx-0.5)<=0.075 and abs(cy-0.5)<=0.090)
-        if not centered:
-            self.jjs_combat_phase="aim"
-            # La camara ya se mueve en el hilo dedicado; durante el ajuste no atacamos.
-            return {"type":"wait","seconds":0.07}, "combat-aim"
-        if target_stunned:
-            self.jjs_combat_phase="punish"
-            if distance>0.58:
-                return {"type":"hold","key":"w","seconds":0.14}, "combat-punish-close"
-            return {"type":"m1","seconds":0.055}, "combat-punish-m1"
-
-        # Para rivales humanos no confiamos en una distancia VLM aproximada:
-        # cuando el rival ya esta centrado, avanzar+M1 mantiene presion y sigue
-        # cerrando distancia aunque la escala de profundidad sea imprecisa.
-        if not is_dummy and now-self.jjs_last_attack_ts>=0.22:
-            self.jjs_combat_phase="engage"
-            self.jjs_last_attack_ts=now
-            return {"type":"advance_m1","seconds":0.11}, "combat-human-advance-m1"
-
-        if distance>0.72:
-            self.jjs_combat_phase="approach"
-            if now-self.jjs_last_tactical_ts>=0.24:
-                self.jjs_last_tactical_ts=now
-                return {"type":"hold","key":"w","seconds":0.16}, "combat-approach"
-
-        if distance>0.54:
-            self.jjs_combat_phase="pressure"
+        if confidence < 0.54:
+            self.jjs_combat_phase = "observe"
+            return {"type": "wait", "seconds": 0.10}, "combat-low-confidence"
+        if distance > 0.80:
+            self.jjs_combat_phase = "approach"
             if (
-                now-self.jjs_last_dash_ts>=1.0
-                and self.jjs_confirmed_hits==0
+                now - self.jjs_last_tactical_ts >= 0.28
+                and confidence >= 0.68
                 and not flag("cooldown_active")
+                and now - self.jjs_last_dash_ts >= 1.35
             ):
-                # Solo usa Q para cerrar si estamos realmente lejos y la habilidad esta disponible.
-                self.jjs_last_dash_ts=now
-                return {"type":"press","key":"q"}, "combat-close-dash"
+                self.jjs_last_tactical_ts = now
+                self.jjs_last_dash_ts = now
+                return {"type": "press", "key": "q"}, "combat-close-dash"
+            if now - self.jjs_last_tactical_ts >= 0.22:
+                self.jjs_last_tactical_ts = now
+                return {"type": "hold", "key": "w", "seconds": 0.12}, "combat-approach"
+            return {"type": "wait", "seconds": 0.06}, "combat-approach-wait"
+        if distance > 0.57:
+            self.jjs_combat_phase = "approach"
+            if now - self.jjs_last_tactical_ts >= 0.22:
+                self.jjs_last_tactical_ts = now
+                return {"type": "hold", "key": "w", "seconds": 0.10}, "combat-approach"
+            return {"type": "wait", "seconds": 0.06}, "combat-approach-wait"
 
-        if distance<=0.56:
-            self.jjs_combat_phase="engage"
-            if is_dummy and now-self.jjs_last_attack_ts>=0.22:
-                return {"type":"advance_m1","seconds":0.11}, "combat-advance-m1"
-            return None, "combat-engage"
-
-        self.jjs_combat_phase="neutral"
-        return None, "combat-neutral"
+        self.jjs_combat_phase = "engage"
+        if now - self.jjs_last_attack_ts >= 0.34:
+            self.jjs_last_attack_ts = now
+            return {"type": "m1", "seconds": 0.05}, "combat-human-m1"
+        return {"type": "wait", "seconds": 0.06}, "combat-human-observe"
 
     def _jjs_vlm_dummy_fallback(self, result):
         """Usa la deteccion del VLM como respaldo cuando el marcador local no aparece."""
@@ -1923,9 +1990,14 @@ class NariApp:
                     td=0.82
 
                 centered=abs(tx-0.5)<=0.070 and abs(ty-0.5)<=0.085
-                if centered and time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)>=0.18:
-                    forced_action={"type":"advance_m1","seconds":0.11}
-                    forced_source="target-advance-m1"
+                if centered:
+                    dummy_action_age=time.monotonic()-getattr(self,"jjs_last_dummy_action_ts",-10.0)
+                    if td>0.60 and dummy_action_age>=0.22:
+                        forced_action={"type":"hold","key":"w","seconds":0.10}
+                        forced_source="target-approach"
+                    elif td<=0.60 and dummy_action_age>=0.32:
+                        forced_action={"type":"m1","seconds":0.05}
+                        forced_source="target-m1"
 
             # Ejecutivo de combate JJS. El VLM aporta percepcion y tactica,
             # pero defensa/escape/rango basicos no dependen de que siempre genere una accion.
@@ -1948,8 +2020,20 @@ class NariApp:
                 opening=bool(result.get("target_stunned",False)) or (
                     self.jjs_confirmed_hits>=2 and bool(result.get("hit_confirmed",False))
                 )
+                try:
+                    stable_for_skill = (
+                        bool(local_dummy)
+                        or (
+                            int(getattr(self,"jjs_human_stable_hits",0))>=3
+                            and abs(float(result.get("target_center_x",0.5))-0.5)<=0.075
+                            and abs(float(result.get("target_center_y",0.5))-0.5)<=0.090
+                        )
+                    )
+                except (TypeError,ValueError):
+                    stable_for_skill=False
                 if (
                     local_visible
+                    and stable_for_skill
                     and opening
                     and not bool(result.get("cooldown_active",False))
                     and time.monotonic()-self.jjs_last_tactical_ts>=0.48
