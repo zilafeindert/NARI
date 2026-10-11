@@ -1,0 +1,6 @@
+NARI 5.5.35
+
+Installer dependency fix.
+
+- Adds beautifulsoup4 to requirements.txt because nari.web imports bs4.BeautifulSoup.
+- Adds a release-build guard so the dependency cannot be accidentally omitted from future packages.
